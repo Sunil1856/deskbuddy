@@ -1,0 +1,15 @@
+#pragma once
+// ============================================================================
+// DeskBuddy — Local Custom Configuration (Optional)
+// Rename this file to "local_config.h" to override default settings
+// ============================================================================
+
+// --- Optional API Keys ---
+// If left blank, DeskBuddy works automatically with 100% free keyless providers!
+// #define OPENWEATHER_API_KEY  "your_openweathermap_api_key_here"
+// #define COINGECKO_API_KEY    "your_coingecko_demo_api_key_here"
+
+// --- Local Pi Server Monitor Companion ---
+// Set to your Raspberry Pi / Home Server endpoint (e.g. Pironman 5 server)
+// #define SERVER_MONITOR_URL   "http://192.168.1.50:34001/api/v1.0/get-history?n=1"
+// #define SERVER_DISPLAY_NAME  "HOME SERVER"

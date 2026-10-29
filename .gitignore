@@ -1,0 +1,22 @@
+# PlatformIO build directories
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Temporary & backup files
+*.bak
+*.tmp
+*.log
