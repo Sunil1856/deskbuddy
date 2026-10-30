@@ -147,13 +147,14 @@ void AppWeather::_fetchWeather() {
     
     _isFetching = true;
 
-    // Automatic Geolocation: auto-detect city & coordinates via IP on Wi-Fi connect/change
+    // Automatic Geolocation: auto-detect city & coordinates via IP only once on new Wi-Fi connect
     static String s_lastLocatedSSID = "";
     String currentSSID = WiFi.SSID();
-    if (currentSSID.length() > 0 && (s_lastLocatedSSID != currentSSID || _storage->getCityName().equalsIgnoreCase("New Delhi"))) {
-        if (_autoDetectLocation()) {
-            s_lastLocatedSSID = currentSSID;
+    if (currentSSID.length() > 0 && s_lastLocatedSSID != currentSSID) {
+        if (_storage->getLatitude() == 0.0f && _storage->getLongitude() == 0.0f) {
+            _autoDetectLocation();
         }
+        s_lastLocatedSSID = currentSSID;
     }
     
     String owmKey = _storage->getOpenWeatherKey();
@@ -216,25 +217,26 @@ void AppWeather::_fetchWeather() {
         }
     }
     
-    // Free Keyless Fallback: Open-Meteo
-    _geocodeConfiguredCity();
+    // Free Keyless Fallback: Open-Meteo (Fast HTTP, Zero-SSL Overhead)
     float lat = _storage->getLatitude();
     float lon = _storage->getLongitude();
+    if (lat == 0.0f && lon == 0.0f) {
+        lat = 28.6139f; // Default Delhi coordinates
+        lon = 77.2090f;
+    }
     
-    WiFiClientSecure client;
-    client.setInsecure();
-    
-    HTTPClient http;
-    http.setUserAgent(HTTP_USER_AGENT);
-    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
-    http.setTimeout(4000);
-    
-    String url = String(API_WEATHER) + 
+    String url = "http://api.open-meteo.com/v1/forecast"
                  "?latitude=" + String(lat, 4) + 
                  "&longitude=" + String(lon, 4) + 
                  "&current=temperature_2m,weather_code,wind_speed_10m" + 
                  "&daily=temperature_2m_max,temperature_2m_min,weather_code" + 
                  "&timezone=auto";
+
+    WiFiClient client;
+    HTTPClient http;
+    http.setUserAgent(HTTP_USER_AGENT);
+    http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+    http.setTimeout(4500);
                  
     if (http.begin(client, url)) {
         int httpCode = http.GET();
@@ -266,9 +268,51 @@ void AppWeather::_fetchWeather() {
                         _face->onGoodWeather(); 
                     }
                 }
+                http.end();
+                _isFetching = false;
+                return;
             }
         }
         http.end();
+    }
+
+    // Fallback: Try HTTPS if HTTP failed
+    {
+        WiFiClientSecure clientSecure;
+        clientSecure.setInsecure();
+        HTTPClient httpSecure;
+        httpSecure.setUserAgent(HTTP_USER_AGENT);
+        httpSecure.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+        httpSecure.setTimeout(5000);
+        String httpsUrl = "https://api.open-meteo.com/v1/forecast"
+                          "?latitude=" + String(lat, 4) + 
+                          "&longitude=" + String(lon, 4) + 
+                          "&current=temperature_2m,weather_code,wind_speed_10m" + 
+                          "&daily=temperature_2m_max,temperature_2m_min,weather_code" + 
+                          "&timezone=auto";
+        if (httpSecure.begin(clientSecure, httpsUrl)) {
+            int httpCode = httpSecure.GET();
+            if (httpCode == HTTP_CODE_OK) {
+                String payload = httpSecure.getString();
+                JsonDocument doc;
+                if (!deserializeJson(doc, payload)) {
+                    _data.currentTemp = doc["current"]["temperature_2m"] | 0.0f;
+                    _data.weatherCode = doc["current"]["weather_code"] | 0;
+                    _data.currentWind = doc["current"]["wind_speed_10m"] | 0.0f;
+                    JsonArray minT = doc["daily"]["temperature_2m_min"];
+                    JsonArray maxT = doc["daily"]["temperature_2m_max"];
+                    JsonArray codes = doc["daily"]["weather_code"];
+                    for (int i = 0; i < 3 && i < (int)minT.size(); i++) {
+                        _data.minTemp[i] = minT[i] | 0.0f;
+                        _data.maxTemp[i] = maxT[i] | 0.0f;
+                        _data.dailyCode[i] = codes[i] | 0;
+                    }
+                    _data.isValid = true;
+                    _data.lastFetch = millis();
+                }
+            }
+            httpSecure.end();
+        }
     }
     _isFetching = false;
 }

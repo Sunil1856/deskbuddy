@@ -40,7 +40,7 @@
 #define HTTP_USER_AGENT "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
 // --- APIs (Free & keyless by default, with optional API key support) ---
-#define API_WEATHER             "https://api.open-meteo.com/v1/forecast"
+#define API_WEATHER             "http://api.open-meteo.com/v1/forecast"
 #define API_GEOCODING           "https://geocoding-api.open-meteo.com/v1/search"
 #define API_QUOTES              "https://zenquotes.io/api/random"
 #define API_FACTS               "https://uselessfacts.jsph.pl/api/v2/facts/random?language=en"
