@@ -23,7 +23,7 @@ CONFIG_FILE = Path(__file__).parent / "config.json"
 DEFAULT_CONFIG = {
     "deskbuddy_ip": "10.91.8.125",
     "gemini_api_key": "",
-    "model_name": "gemini-1.5-flash",
+    "model_name": "gemini-3.5-flash-lite",
     "default_fps": 10,
     "default_dither": "floyd",
     "voice": "hi-IN-SwaraNeural"
@@ -207,8 +207,15 @@ def query_ai(user_prompt: str) -> tuple[str, str]:
         except Exception as e:
             return "[ANNOYED]", f"Groq Error: {str(e)[:50]}"
 
-    # 2. Google Gemini API (Standard Gemini AI Studio Keys start with AIzaSy)
-    models_to_try = [cfg.get("model_name", "gemini-1.5-flash"), "gemini-1.5-flash-latest", "gemini-1.5-pro"]
+    # 2. Google Gemini API (Auto-fallback to active flash models)
+    models_to_try = [
+        cfg.get("model_name", "gemini-3.5-flash-lite"),
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-3.7-flash",
+        "gemini-flash-latest",
+        "gemini-1.5-flash"
+    ]
     last_err = ""
     for m in models_to_try:
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
