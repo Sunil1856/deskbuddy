@@ -44,6 +44,7 @@ private:
     AppID _selectedApp = AppID::NONE;
     
     unsigned long _lastInteractionTime = 0;
+    unsigned long _openTime = 0;
     
     void _drawCarousel();
 };

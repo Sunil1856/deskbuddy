@@ -46,7 +46,9 @@ private:
     
     uint8_t _photo[1024]; // 128x64 1-bit static photo
     bool _hasPhoto = false;
+    bool _isPhotoInverted = false;
     String _localIP = "";
+    unsigned long _enteredTime = 0;
 
     // Video playback engine
     uint8_t* _videoFrames = nullptr; // Dynamically allocated in RAM

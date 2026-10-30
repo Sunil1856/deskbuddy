@@ -82,8 +82,9 @@ void setup() {
     // Connect Photo Studio
     g_wifi.setGallery(&appGallery);
     g_wifi.setOnPhotoUploaded([]() {
-        g_touchInput.reset();
-        switchApp(AppID::GALLERY);
+        if (g_currentApp != AppID::GALLERY) {
+            switchApp(AppID::GALLERY);
+        }
     });
     
     // Check if configured
@@ -95,11 +96,14 @@ void setup() {
     g_wifi.autoConnect();
 }
 
+static unsigned long g_lastAppSwitchTime = 0;
+
 void switchApp(AppID newApp) {
     if (g_currentApp == newApp) return;
     
     // Clear residual touch state on app switch
     g_touchInput.reset();
+    g_lastAppSwitchTime = millis();
     
     // Capture current frame buffer before transition so fade doesn't flash black/garbage
     g_display.captureScreen();
@@ -227,6 +231,11 @@ void loop() {
     if (ev != TouchEvent::NONE) {
         g_lastUserActivityTime = millis();
         
+        // Absorb trailing finger-release taps or holds from menu selection
+        if (millis() - g_lastAppSwitchTime < 550) {
+            return;
+        }
+        
         // If Buddy is sleeping: any touch WAKES UP Buddy!
         if (g_face.isSleeping()) {
             g_face.wakeUp();
@@ -304,13 +313,9 @@ void loop() {
                 // Long press opens Menu Carousel
                 g_display.captureScreen();
                 g_menu.show();
-            } else if (ev == TouchEvent::TAP) {
-                // Single Tap: if video is playing and photo exists, show photo; otherwise return to Pet Face!
-                if (appGallery.hasVideo() && appGallery.hasPhoto() && appGallery.isPlayingVideo()) {
-                    appGallery.toggleVideoPlay();
-                } else {
-                    switchApp(AppID::FACE);
-                }
+            } else {
+                // Single tap toggles photo <-> video or invert; Double tap is handled globally to return to Pet Face
+                appGallery.handleTouch(ev);
             }
             lastAutoCycle = millis();
         }

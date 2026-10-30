@@ -33,6 +33,7 @@ void MenuSystem::begin(DisplayManager* dm) {
 
 void MenuSystem::show() {
     _active = true;
+    _openTime = millis();
     _lastInteractionTime = millis();
     _dm->startTransition(Transition::SLIDE_UP, 300);
 }
@@ -123,6 +124,9 @@ void MenuSystem::_drawCarousel() {
 
 void MenuSystem::handleTouch(TouchEvent event) {
     if (!_active) return;
+    
+    // Ignore residual touch events from the long-press that opened the menu
+    if (millis() - _openTime < 400) return;
     
     _lastInteractionTime = millis();
     

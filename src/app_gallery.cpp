@@ -39,6 +39,7 @@ void AppGallery::begin(DisplayManager* dm, Storage* storage, FaceRenderer* face)
 }
 
 void AppGallery::onEnter() {
+    _enteredTime = millis();
     if (_face) {
         _face->setExpression(Expression::HAPPY, 200);
     }
@@ -85,16 +86,23 @@ void AppGallery::toggleVideoPlay() {
 }
 
 void AppGallery::handleTouch(TouchEvent event) {
+    if (millis() - _enteredTime < 500) {
+        return; // Absorb menu-release tap
+    }
+
     if (event == TouchEvent::TAP) {
-        if (_hasVideo) {
+        if (_hasVideo && _hasPhoto) {
+            // Both exist: Single tap smoothly toggles between photo and animated video!
             toggleVideoPlay();
-            if (_face) {
-                _face->addHappiness(8);
-            }
-        } else {
-            if (_face) {
-                _face->addHappiness(5);
-            }
+        } else if (_hasVideo && !_hasPhoto) {
+            // Video only: Single tap toggles play / pause!
+            toggleVideoPlay();
+        } else if (_hasPhoto && !_hasVideo) {
+            // Photo only: Single tap toggles color invert!
+            _isPhotoInverted = !_isPhotoInverted;
+        }
+        if (_face) {
+            _face->addHappiness(6);
         }
     }
 }
@@ -282,14 +290,16 @@ void AppGallery::_renderEmpty() {
 void AppGallery::_renderPhoto() {
     Adafruit_SSD1306& d = _dm->display();
     
-    // Render full-screen 128x64 bitmap exactly as uploaded
-    d.drawBitmap(0, 0, _photo, SCREEN_W, SCREEN_H, SSD1306_WHITE, SSD1306_BLACK);
+    // Render full-screen 128x64 bitmap exactly as uploaded (or inverted if toggled)
+    uint16_t fg = _isPhotoInverted ? SSD1306_BLACK : SSD1306_WHITE;
+    uint16_t bg = _isPhotoInverted ? SSD1306_WHITE : SSD1306_BLACK;
+    d.drawBitmap(0, 0, _photo, SCREEN_W, SCREEN_H, fg, bg);
     
     // If a video is also present, show a small subtle play indicator in bottom right
     if (_hasVideo) {
-        d.fillRect(114, 52, 13, 11, SSD1306_BLACK);
-        d.drawRoundRect(114, 52, 13, 11, 2, SSD1306_WHITE);
-        d.fillTriangle(118, 54, 118, 60, 124, 57, SSD1306_WHITE);
+        d.fillRect(114, 52, 13, 11, bg);
+        d.drawRoundRect(114, 52, 13, 11, 2, fg);
+        d.fillTriangle(118, 54, 118, 60, 124, 57, fg);
     }
 }
 

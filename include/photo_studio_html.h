@@ -400,6 +400,21 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       🎞️ <span id="vFramesCount">0</span> Frames &bull; <span id="vFpsVal">8</span> FPS &bull; <span id="vDurationVal">0.0s</span> &bull; <span id="vSizeVal">0</span> KB
     </div>
 
+    <!-- Video Playback & Frame Scrubber -->
+    <div class="control-group" id="vScrubberGroup" style="display:none;">
+      <div class="control-header">
+        <span>Frame Scrubber</span>
+        <span class="val-blue" id="vScrubberVal">Frame 1 of 0</span>
+      </div>
+      <input type="range" class="range-blue" id="vScrubberSlider" min="0" max="0" step="1" value="0">
+    </div>
+
+    <div style="display:flex; gap:8px; margin-bottom:12px;">
+      <button type="button" class="action-btn" id="vPlayPauseBtn">⏸ Pause</button>
+      <button type="button" class="action-btn" id="vStepBtn">⏭ Step</button>
+      <button type="button" class="action-btn" id="vInvertBtn">◐ Invert</button>
+    </div>
+
     <!-- Video Trim Tool -->
     <div class="control-group">
       <div class="control-header">
@@ -472,16 +487,20 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       <input type="range" class="range-blue" id="vThresholdSlider" min="50" max="200" step="2" value="128">
     </div>
 
-    <div style="display:flex; gap:8px; margin-bottom:12px;">
-      <button type="button" class="action-btn" id="vInvertBtn">◐ Invert</button>
-      <button type="button" class="action-btn" id="vPlayPauseBtn">⏸ Pause</button>
-      <button type="button" class="action-btn" id="vStepBtn">⏭ Next Frame</button>
+    <div class="live-sync-card" style="margin-bottom:14px;">
+      <label class="live-sync-label">
+        <input type="checkbox" id="vLiveSyncCheck">
+        <span>⚡ Sync Video Frames to OLED</span>
+      </label>
+      <div class="live-status-pill" id="vLiveStatusPill" style="color:var(--accent-blue); border-color:rgba(0,229,255,0.3); background:rgba(0,229,255,0.12);">
+        <span class="pulse-dot" style="background:var(--accent-blue); box-shadow:0 0 6px var(--accent-blue);"></span> Frame
+      </div>
     </div>
 
-    <!-- Upload Progress Bar -->
+    <!-- Upload / Processing Progress Bar -->
     <div id="vProgressBox" style="display:none; margin-bottom:12px; background:#12161f; padding:10px; border-radius:8px; border:1px solid #30363d;">
       <div style="display:flex; justify-content:space-between; font-size:11px; font-weight:700; margin-bottom:6px; color:var(--accent-blue);">
-        <span id="vProgressText">Uploading frames...</span>
+        <span id="vProgressText">Processing...</span>
         <span id="vProgressPercent">0%</span>
       </div>
       <div style="width:100%; height:8px; background:#222; border-radius:4px; overflow:hidden;">
@@ -498,6 +517,30 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   </div>
 </div>
 
+<!-- ========================================== -->
+<!-- LAPTOP HARDWARE MONITOR SETTINGS CARD -->
+<!-- ========================================== -->
+<div class="container" style="margin-top: 14px;">
+  <div class="control-header" style="margin-bottom: 8px;">
+    <span style="font-size:13px; font-weight:700; color:var(--accent);">💻 Laptop Hardware Monitor</span>
+    <span class="val" id="serverStatusBadge">Port 34001</span>
+  </div>
+  <p style="font-size:11px; color:#888; margin-bottom:10px;">
+    Double-click <code>tools/run_laptop_monitor.bat</code> on your laptop to stream live CPU, RAM &amp; Network speeds to DeskBuddy.
+  </p>
+  <div class="control-group" style="margin-bottom:8px;">
+    <div class="control-header"><span>Laptop Monitor URL</span></div>
+    <input type="text" id="serverUrlInput" placeholder="http://10.91.8.136:34001/api/v1.0/get-history?n=1" style="width:100%; padding:8px; background:#111; border:1px solid #333; color:#eee; border-radius:6px; font-family:monospace; font-size:11px;">
+  </div>
+  <div class="control-group" style="margin-bottom:10px;">
+    <div class="control-header"><span>Display Name</span></div>
+    <input type="text" id="serverNameInput" placeholder="MY LAPTOP" style="width:100%; padding:8px; background:#111; border:1px solid #333; color:#eee; border-radius:6px; font-family:sans-serif; font-size:11px;">
+  </div>
+  <button type="button" class="action-btn" id="saveServerBtn" style="width:100%; padding:9px; background:#00E676; color:#000; font-weight:700; border-radius:8px;">
+    💾 Save Laptop Settings
+  </button>
+</div>
+
 <div id="toast"></div>
 
 <script>
@@ -505,6 +548,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   const canvas = document.getElementById('previewCanvas');
   const ctx = canvas.getContext('2d');
   const toast = document.getElementById('toast');
+  const bezel = document.getElementById('bezel');
 
   function showToast(msg, bg='#1f6feb') {
     toast.innerText = msg;
@@ -546,6 +590,95 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   drawDefaultGrid('Select a Photo Above');
 
   // ==========================================
+  // POINTER DRAG & ZOOM ON CANVAS BEZEL
+  // ==========================================
+  let isDragging = false;
+  let startX = 0, startY = 0;
+  let initPanX = 0, initPanY = 0;
+
+  bezel.addEventListener('pointerdown', (e) => {
+    if (currentMode === 'photo') {
+      if (!loadedImg) return;
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      initPanX = panX;
+      initPanY = panY;
+      bezel.setPointerCapture(e.pointerId);
+    } else {
+      if (videoFrames.length === 0) return;
+      isDragging = true;
+      startX = e.clientX;
+      startY = e.clientY;
+      initPanX = parseInt(vPanXSlider.value);
+      initPanY = parseInt(vPanYSlider.value);
+      bezel.setPointerCapture(e.pointerId);
+    }
+  });
+
+  bezel.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+    const dx = (e.clientX - startX) / 2.5;
+    const dy = (e.clientY - startY) / 2.5;
+    if (currentMode === 'photo') {
+      if (!loadedImg) return;
+      panX = initPanX + dx;
+      panY = initPanY + dy;
+      renderPhoto();
+    } else {
+      let nx = Math.max(-40, Math.min(40, Math.round(initPanX + dx)));
+      let ny = Math.max(-30, Math.min(30, Math.round(initPanY + dy)));
+      vPanXSlider.value = nx;
+      vPanYSlider.value = ny;
+      vPanXVal.innerText = nx;
+      vPanYVal.innerText = ny;
+      debounceProcessVideo();
+    }
+  });
+
+  bezel.addEventListener('pointerup', () => { isDragging = false; });
+  bezel.addEventListener('pointercancel', () => { isDragging = false; });
+
+  // Mouse wheel zoom for photo
+  bezel.addEventListener('wheel', (e) => {
+    if (currentMode !== 'photo' || !loadedImg) return;
+    e.preventDefault();
+    if (e.deltaY < 0) {
+      zoom = Math.min(4.0, zoom + 0.1);
+    } else {
+      zoom = Math.max(0.1, zoom - 0.1);
+    }
+    zoomSlider.value = zoom.toFixed(2);
+    zoomVal.innerText = zoom.toFixed(1) + 'x';
+    renderPhoto();
+  }, { passive: false });
+
+  // Touch pinch-to-zoom for mobile
+  let touchStartDist = 0;
+  let touchStartZoom = 1.0;
+  bezel.addEventListener('touchstart', (e) => {
+    if (currentMode === 'photo' && loadedImg && e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      touchStartDist = Math.hypot(dx, dy);
+      touchStartZoom = zoom;
+    }
+  }, { passive: true });
+
+  bezel.addEventListener('touchmove', (e) => {
+    if (currentMode === 'photo' && loadedImg && e.touches.length === 2 && touchStartDist > 0) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      const factor = dist / touchStartDist;
+      zoom = Math.max(0.1, Math.min(4.0, touchStartZoom * factor));
+      zoomSlider.value = zoom.toFixed(2);
+      zoomVal.innerText = zoom.toFixed(1) + 'x';
+      renderPhoto();
+    }
+  }, { passive: true });
+
+  // ==========================================
   // PHOTO STUDIO JAVASCRIPT
   // ==========================================
   const fileInput = document.getElementById('fileInput');
@@ -579,6 +712,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
         calcBaseScale();
         panX = 0; panY = 0;
         zoom = 1.0; zoomSlider.value = 1.0;
+        zoomVal.innerText = "1.0x (Fit)";
         sendBtn.disabled = false;
         renderPhoto();
       };
@@ -710,10 +844,10 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   rotateBtn.onclick = () => { rotationDeg = (rotationDeg + 90) % 360; renderPhoto(); };
   invertBtn.onclick = () => { isPhotoInverted = !isPhotoInverted; renderPhoto(); };
 
-  document.getElementById('btnZoomOut').onclick = () => { zoom = Math.max(0.1, zoom - 0.2); zoomSlider.value = zoom; renderPhoto(); };
-  document.getElementById('btnZoomIn').onclick = () => { zoom = Math.min(4.0, zoom + 0.2); zoomSlider.value = zoom; renderPhoto(); };
-  document.getElementById('btnFit').onclick = () => { zoom = 1.0; baseScale = fitScale; zoomSlider.value = 1.0; panX = 0; panY = 0; renderPhoto(); };
-  document.getElementById('btnFill').onclick = () => { zoom = fillScale / fitScale; zoomSlider.value = zoom; panX = 0; panY = 0; renderPhoto(); };
+  document.getElementById('btnZoomOut').onclick = () => { zoom = Math.max(0.1, zoom - 0.2); zoomSlider.value = zoom; zoomVal.innerText = zoom.toFixed(1)+'x'; renderPhoto(); };
+  document.getElementById('btnZoomIn').onclick = () => { zoom = Math.min(4.0, zoom + 0.2); zoomSlider.value = zoom; zoomVal.innerText = zoom.toFixed(1)+'x'; renderPhoto(); };
+  document.getElementById('btnFit').onclick = () => { zoom = 1.0; baseScale = fitScale; zoomSlider.value = 1.0; zoomVal.innerText = "1.0x (Fit)"; panX = 0; panY = 0; renderPhoto(); };
+  document.getElementById('btnFill').onclick = () => { zoom = fillScale / fitScale; zoomSlider.value = zoom; zoomVal.innerText = zoom.toFixed(1)+'x'; panX = 0; panY = 0; renderPhoto(); };
   document.getElementById('btnReset').onclick = () => { panX = 0; panY = 0; renderPhoto(); };
 
   sendBtn.onclick = () => {
@@ -765,6 +899,10 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   const vInvertBtn = document.getElementById('vInvertBtn');
   const vPlayPauseBtn = document.getElementById('vPlayPauseBtn');
   const vStepBtn = document.getElementById('vStepBtn');
+  const vScrubberGroup = document.getElementById('vScrubberGroup');
+  const vScrubberSlider = document.getElementById('vScrubberSlider');
+  const vScrubberVal = document.getElementById('vScrubberVal');
+  const vLiveSyncCheck = document.getElementById('vLiveSyncCheck');
   const uploadVideoBtn = document.getElementById('uploadVideoBtn');
   const deleteVideoBtn = document.getElementById('deleteVideoBtn');
 
@@ -774,6 +912,12 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   let videoPreviewTimer = null;
   let isVideoPreviewPlaying = false;
   let isVideoInverted = false;
+  let videoDebounceTimer = null;
+
+  function debounceProcessVideo() {
+    if (videoDebounceTimer) clearTimeout(videoDebounceTimer);
+    videoDebounceTimer = setTimeout(processVideo, 300);
+  }
 
   videoInput.addEventListener('change', async e => {
     const f = e.target.files[0];
@@ -783,15 +927,15 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     await processVideo();
   });
 
-  vStartSlider.oninput = () => { vStartVal.innerText = parseFloat(vStartSlider.value).toFixed(1) + 's'; processVideo(); };
-  vMaxSecSelect.onchange = processVideo;
-  vFpsSelect.onchange = processVideo;
-  vFitMode.onchange = processVideo;
-  vDitherMode.onchange = processVideo;
-  vPanXSlider.oninput = () => { vPanXVal.innerText = vPanXSlider.value; processVideo(); };
-  vPanYSlider.oninput = () => { vPanYVal.innerText = vPanYSlider.value; processVideo(); };
-  vThresholdSlider.oninput = () => { vThresholdVal.innerText = vThresholdSlider.value; processVideo(); };
-  vInvertBtn.onclick = () => { isVideoInverted = !isVideoInverted; processVideo(); };
+  vStartSlider.oninput = () => { vStartVal.innerText = parseFloat(vStartSlider.value).toFixed(1) + 's'; debounceProcessVideo(); };
+  vMaxSecSelect.onchange = debounceProcessVideo;
+  vFpsSelect.onchange = debounceProcessVideo;
+  vFitMode.onchange = debounceProcessVideo;
+  vDitherMode.onchange = debounceProcessVideo;
+  vPanXSlider.oninput = () => { vPanXVal.innerText = vPanXSlider.value; debounceProcessVideo(); };
+  vPanYSlider.oninput = () => { vPanYVal.innerText = vPanYSlider.value; debounceProcessVideo(); };
+  vThresholdSlider.oninput = () => { vThresholdVal.innerText = vThresholdSlider.value; debounceProcessVideo(); };
+  vInvertBtn.onclick = () => { isVideoInverted = !isVideoInverted; debounceProcessVideo(); };
 
   function seekVideoPromise(video, targetTime) {
     return new Promise(resolve => {
@@ -805,14 +949,22 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       };
       video.addEventListener('seeked', onSeeked);
       video.currentTime = Math.min(targetTime, (video.duration || targetTime));
-      setTimeout(onSeeked, 400); // 400ms fallback safety
+      setTimeout(onSeeked, 350); // Fallback timeout
     });
   }
 
   async function processVideo() {
     if (!rawVideoFile || currentMode !== 'video') return;
     stopVideoPreview();
-    showToast('⚙️ Processing video frames...', '#00E5FF');
+    
+    const progressBox = document.getElementById('vProgressBox');
+    const progressBar = document.getElementById('vProgressBar');
+    const progressText = document.getElementById('vProgressText');
+    const progressPercent = document.getElementById('vProgressPercent');
+    progressBox.style.display = 'block';
+    progressText.innerText = 'Extracting video frames...';
+    progressBar.style.width = '0%';
+    progressPercent.innerText = '0%';
 
     const fps = parseInt(vFpsSelect.value);
     const maxSec = parseInt(vMaxSecSelect.value);
@@ -835,7 +987,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       await new Promise((res, rej) => {
         v.onloadedmetadata = () => res();
         v.onerror = () => rej(new Error('Cannot open video file'));
-        setTimeout(res, 2500);
+        setTimeout(res, 2000);
       });
 
       if (v.duration && v.duration > 0) {
@@ -844,7 +996,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
 
       const availableSec = Math.max(0.5, (v.duration ? v.duration - startTime : maxSec));
       const dur = Math.min(availableSec, maxSec);
-      const totalFrames = Math.min(Math.max(1, Math.floor(dur * fps)), 96); // Max 96 frames
+      const totalFrames = Math.min(Math.max(1, Math.floor(dur * fps)), 96);
       const frameInterval = 1.0 / fps;
 
       const off = document.createElement('canvas');
@@ -853,6 +1005,11 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
 
       videoFrames = [];
       for (let i = 0; i < totalFrames; i++) {
+        const pct = Math.round(((i + 1) / totalFrames) * 100);
+        progressText.innerText = `Converting frame ${i + 1} of ${totalFrames}...`;
+        progressPercent.innerText = pct + '%';
+        progressBar.style.width = pct + '%';
+
         const seekT = startTime + (i * frameInterval);
         await seekVideoPromise(v, seekT);
 
@@ -878,6 +1035,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       
       URL.revokeObjectURL(v.src);
       v.remove();
+      progressBox.style.display = 'none';
 
       // Update stats
       document.getElementById('vStatsPill').style.display = 'block';
@@ -887,10 +1045,17 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       document.getElementById('vSizeVal').innerText = ((videoFrames.length * 1024) / 1024).toFixed(1);
       uploadVideoBtn.disabled = false;
 
+      // Setup Frame Scrubber
+      vScrubberGroup.style.display = 'block';
+      vScrubberSlider.max = Math.max(0, videoFrames.length - 1);
+      vScrubberSlider.value = 0;
+      vScrubberVal.innerText = `Frame 1 of ${videoFrames.length}`;
+
       videoPreviewIndex = 0;
       startVideoPreview();
-      showToast('✅ Animation Ready! Preview playing below.', '#00C853');
+      showToast('✅ Animation Ready! Live preview playing.', '#00C853');
     } catch(err) {
+      progressBox.style.display = 'none';
       showToast('Error: ' + err.message, '#d32f2f');
     }
   }
@@ -920,7 +1085,6 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
         }
       }
     } else {
-      // Floyd-Steinberg dither for video
       for (let y = 0; y < 64; y++) {
         for (let x = 0; x < 128; x++) {
           const idx = y * 128 + x;
@@ -962,6 +1126,8 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
 
     videoPreviewTimer = setInterval(() => {
       drawHexToCanvas(videoFrames[videoPreviewIndex]);
+      vScrubberSlider.value = videoPreviewIndex;
+      vScrubberVal.innerText = `Frame ${videoPreviewIndex + 1} of ${videoFrames.length}`;
       videoPreviewIndex = (videoPreviewIndex + 1) % videoFrames.length;
     }, ms);
   }
@@ -981,7 +1147,28 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     if (videoFrames.length === 0) return;
     videoPreviewIndex = (videoPreviewIndex + 1) % videoFrames.length;
     drawHexToCanvas(videoFrames[videoPreviewIndex]);
+    vScrubberSlider.value = videoPreviewIndex;
+    vScrubberVal.innerText = `Frame ${videoPreviewIndex + 1} of ${videoFrames.length}`;
+    if (vLiveSyncCheck.checked) syncVideoFrameToOled(videoFrames[videoPreviewIndex]);
   };
+
+  vScrubberSlider.oninput = () => {
+    stopVideoPreview();
+    if (videoFrames.length === 0) return;
+    videoPreviewIndex = parseInt(vScrubberSlider.value);
+    drawHexToCanvas(videoFrames[videoPreviewIndex]);
+    vScrubberVal.innerText = `Frame ${videoPreviewIndex + 1} of ${videoFrames.length}`;
+    if (vLiveSyncCheck.checked) syncVideoFrameToOled(videoFrames[videoPreviewIndex]);
+  };
+
+  function syncVideoFrameToOled(hex) {
+    if (!hex) return;
+    fetch('/api/photo', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'data=' + hex + '&save=0'
+    }).catch(() => {});
+  }
 
   function drawHexToCanvas(hex) {
     if (!hex || hex.length < 2048) return;
@@ -1063,9 +1250,38 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
           showToast('Video removed from DeskBuddy');
           videoFrames = [];
           stopVideoPreview();
+          vScrubberGroup.style.display = 'none';
+          document.getElementById('vStatsPill').style.display = 'none';
+          uploadVideoBtn.disabled = true;
           drawDefaultGrid('Video removed');
         }
       });
+  };
+
+  // ==========================================
+  // LAPTOP MONITOR SERVER SETTINGS JAVASCRIPT
+  // ==========================================
+  fetch('/api/server')
+    .then(r => r.json())
+    .then(d => {
+      if (d.url) document.getElementById('serverUrlInput').value = d.url;
+      if (d.name) document.getElementById('serverNameInput').value = d.name;
+    }).catch(() => {});
+
+  document.getElementById('saveServerBtn').onclick = () => {
+    const url = document.getElementById('serverUrlInput').value;
+    const name = document.getElementById('serverNameInput').value;
+    fetch('/api/server', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'url=' + encodeURIComponent(url) + '&name=' + encodeURIComponent(name)
+    })
+    .then(r => r.json())
+    .then(d => {
+      if (d.status === 'ok') showToast('✅ Laptop settings saved!', '#00C853');
+      else showToast('Save failed', '#d32f2f');
+    })
+    .catch(() => showToast('Saved!', '#00C853'));
   };
 </script>
 </body>

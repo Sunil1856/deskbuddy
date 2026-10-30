@@ -201,7 +201,7 @@ void WifiManager::_setupStationWebRoutes() {
         if (g_gallery) {
             g_gallery->setPhoto(buffer, save);
         }
-        if (g_photoCb) {
+        if (save && g_photoCb) {
             g_photoCb();
         }
         
