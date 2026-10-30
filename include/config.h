@@ -17,12 +17,13 @@
 #define FRAME_TIME_MS   (1000 / TARGET_FPS)
 
 // --- Touch Timing (ms) ---
-#define TOUCH_DEBOUNCE_MS       18       // Snappy 18ms debounce (fast tap response, filters RF spikes)
+#define TOUCH_DEBOUNCE_MS       28       // Balanced 28ms debounce (filters RF & electrical noise, retains snappy response)
 #define TOUCH_TAP_MAX_MS        300      // Natural tap window (< 300ms)
-#define TOUCH_DOUBLE_GAP_MS     240      // Multi-tap recognition gap (comfortable for double & triple taps)
-#define TOUCH_LONG_PRESS_MS     600      // 600ms long press
-#define TOUCH_HOLD_MS           1800     // 1.8s hold threshold
-#define TOUCH_DEEP_HOLD_MS      3500     // 3.5s deep hold
+#define TOUCH_DOUBLE_GAP_MS     250      // Multi-tap recognition gap (comfortable for double & triple taps)
+#define TOUCH_LONG_PRESS_MS     650      // Crisp 650ms long press for Enter / Action / Menu
+#define TOUCH_HOLD_MS           1400     // 1.4s hold threshold
+#define TOUCH_DEEP_HOLD_MS      3000     // 3.0s deep hold
+#define TOUCH_STUCK_TIMEOUT_MS  4000UL   // 4.0s watchdog to auto-release stuck capacitive sensor
 
 // --- WiFi AP (Captive Portal) ---
 #define AP_SSID         "DeskBuddy-Setup"

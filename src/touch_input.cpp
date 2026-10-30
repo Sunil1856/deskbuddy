@@ -9,6 +9,7 @@ void TouchInput::begin() {
     _touching = false;
     _lastRawReading = false;
     _debouncedState = false;
+    _watchdogSuppressed = false;
     _touchStart = 0;
     _touchEnd = 0;
     _lastDebounceTime = 0;
@@ -54,6 +55,30 @@ TouchEvent TouchInput::update() {
     
     if ((now - _lastDebounceTime) >= TOUCH_DEBOUNCE_MS) {
         _debouncedState = raw;
+        if (!raw) {
+            _watchdogSuppressed = false; // Sensor returned to clean LOW, resume normal touches
+        }
+    }
+
+    // If watchdog previously triggered because sensor was stuck, ignore until physical release
+    if (_watchdogSuppressed) {
+        return TouchEvent::NONE;
+    }
+
+    // Stuck-Sensor Watchdog Protection:
+    // If the sensor is stuck HIGH continuously for > TOUCH_STUCK_TIMEOUT_MS (e.g. electrical ripple / static charge),
+    // force-release the touch state so the system and UI never freeze!
+    if (_touching && (now - _touchStart) >= TOUCH_STUCK_TIMEOUT_MS) {
+        Serial.println("[TOUCH] Watchdog: stuck touch released automatically");
+        _touching = false;
+        _debouncedState = false;
+        _watchdogSuppressed = true; // Stay suppressed until sensor physically drops back to LOW
+        _tapState = TapState::IDLE;
+        _touchEnd = now;
+        _longPressFired = false;
+        _holdFired = false;
+        _deepHoldFired = false;
+        return TouchEvent::NONE;
     }
     
     bool pressed = _debouncedState;

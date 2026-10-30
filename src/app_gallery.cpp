@@ -31,7 +31,11 @@ void AppGallery::update() {
 }
 
 void AppGallery::handleTouch(TouchEvent event) {
-    // Invert option removed as requested: image is always shown exactly as uploaded
+    if (event == TouchEvent::TAP) {
+        if (_face) {
+            _face->addHappiness(5);
+        }
+    }
 }
 
 void AppGallery::setPhoto(const uint8_t* bitmap1024, bool saveToStorage) {

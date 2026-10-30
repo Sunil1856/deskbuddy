@@ -227,6 +227,7 @@ void loop() {
         if (ev == TouchEvent::TRIPLE_TAP) {
             if (g_menu.isActive()) {
                 g_menu.hide();
+                g_menu.clearSelectedApp();
             }
             if (g_currentApp == AppID::FACE) {
                 appClock.setDigitalMode();
@@ -237,6 +238,27 @@ void loop() {
             lastAutoCycle = millis();
             return;
         }
+        
+        // Global DOUBLE TAP: Universal Back to Pet Face from ANY screen!
+        if (ev == TouchEvent::DOUBLE_TAP) {
+            if (g_menu.isActive()) {
+                g_menu.hide();
+                g_menu.clearSelectedApp();
+                switchApp(AppID::FACE);
+            } else if (g_currentApp == AppID::GAMES && appGames.isGameActive()) {
+                // Inside an active arcade game (Dino/Flappy), pass touch to game so fast gameplay double-tap doesn't kill high score
+                appGames.handleTouch(ev);
+            } else if (g_currentApp != AppID::FACE) {
+                // Universal back to Pet Face from Clock, Weather, Info, Settings, Gallery, Server, Games Menu!
+                switchApp(AppID::FACE);
+            } else {
+                // Already on Pet Face: Double tap triggers instant affection / love reaction!
+                g_face.onLongTouch();
+            }
+            lastAutoCycle = millis();
+            return;
+        }
+
         if (g_menu.isActive()) {
             g_menu.handleTouch(ev);
             if (g_menu.getSelectedApp() != AppID::NONE) {
@@ -247,70 +269,54 @@ void loop() {
                 lastAutoCycle = millis();
             }
         }
-        else if (g_currentApp == AppID::GAMES) {
-            if (ev == TouchEvent::DOUBLE_TAP && !appGames.isGameActive()) {
-                // Double tap on game menu returns back to Pet Face
-                switchApp(AppID::FACE);
-            } else {
-                appGames.handleTouch(ev);
+        else if (g_currentApp == AppID::FACE) {
+            if (ev == TouchEvent::TAP) {
+                // Single Tap: cycle pet expressions smoothly
+                g_face.cycleNextExpression();
+            } else if (ev == TouchEvent::LONG_PRESS || ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
+                // Long Press (hold > 650ms): open Main Menu Carousel!
+                g_display.captureScreen();
+                g_menu.show();
             }
+            lastAutoCycle = millis();
+        }
+        else if (g_currentApp == AppID::GAMES) {
+            appGames.handleTouch(ev);
             lastAutoCycle = millis();
         }
         else if (g_currentApp == AppID::SETTINGS) {
-            if (ev == TouchEvent::DOUBLE_TAP) {
-                switchApp(AppID::FACE);
-            } else {
-                appSettings.handleTouch(ev);
-            }
+            appSettings.handleTouch(ev);
             lastAutoCycle = millis();
         }
         else if (g_currentApp == AppID::GALLERY) {
-            if (ev == TouchEvent::DOUBLE_TAP || ev == TouchEvent::TAP) {
-                switchApp(AppID::FACE);
-            } else if (ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
+            if (ev == TouchEvent::LONG_PRESS || ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
+                // Long press opens Menu Carousel
                 g_display.captureScreen();
                 g_menu.show();
             } else {
+                // Single Tap keeps displaying photo safely (never kicks user out!)
                 appGallery.handleTouch(ev);
             }
             lastAutoCycle = millis();
         }
-        else if (g_currentApp == AppID::FACE) {
-            if (ev == TouchEvent::TAP || ev == TouchEvent::DOUBLE_TAP) {
-                // Smooth cycling across all 30 expressions (rapid taps will never exit to Clock!)
-                g_face.cycleNextExpression();
+        else if (g_currentApp == AppID::SERVER) {
+            if (!appServer.isOnline() || ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
+                switchApp(AppID::FACE);
             } else if (ev == TouchEvent::LONG_PRESS) {
-                // Sustained touch affection reaction!
-                g_face.onLongTouch();
-            } else if (ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
-                // Deep hold (>1.5s) opens Main Menu Carousel!
                 g_display.captureScreen();
                 g_menu.show();
+            } else {
+                appServer.handleTouch(ev);
             }
             lastAutoCycle = millis();
         }
         else {
-            // In CLOCK, WEATHER, WORLD_INFO, SERVER:
-            if (ev == TouchEvent::DOUBLE_TAP) {
-                // Universal back to face
-                switchApp(AppID::FACE);
-            } else if (g_currentApp == AppID::SERVER) {
-                // In Server screen:
-                // If offline: ANY tap, press or hold immediately returns to Face! (Never stuck!)
-                // If online: HOLD returns to Face, TAP refreshes
-                if (!appServer.isOnline() || ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
-                    switchApp(AppID::FACE);
-                } else {
-                    appServer.handleTouch(ev);
-                }
-            } else {
-                // Route all touches (TAP, LONG_PRESS, HOLD) directly to current app!
-                switch (g_currentApp) {
-                    case AppID::CLOCK: appClock.handleTouch(ev); break;
-                    case AppID::WEATHER: appWeather.handleTouch(ev); break;
-                    case AppID::WORLD_INFO: appWorldInfo.handleTouch(ev); break;
-                    default: break;
-                }
+            // Route all touches directly to Clock, Weather, World Info
+            switch (g_currentApp) {
+                case AppID::CLOCK: appClock.handleTouch(ev); break;
+                case AppID::WEATHER: appWeather.handleTouch(ev); break;
+                case AppID::WORLD_INFO: appWorldInfo.handleTouch(ev); break;
+                default: break;
             }
             lastAutoCycle = millis();
         }
