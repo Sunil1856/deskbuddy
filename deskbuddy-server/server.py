@@ -2,6 +2,7 @@
 # ==============================================================================
 # DeskBuddy Smart Brain Server (Android Termux & Cloud AI Companion Backend)
 # Powered by Flask (100% Pure Python - Zero Rust / Zero Maturin build needed!)
+# Supports Google Gemini (AIzaSy...) & Groq Cloud (gsk_...)
 # ==============================================================================
 import os
 import sys
@@ -160,7 +161,7 @@ def render_text_to_oled_hex(text: str, emotion: str = "HAPPY", title: str = "BUD
     return "".join(hex_parts)
 
 # ==============================================================================
-# AI Brain: Google Gemini 1.5 Flash
+# AI Brain: Supports Google Gemini & Groq Cloud
 # ==============================================================================
 SYSTEM_PROMPT = """You are DeskBuddy, an adorable, witty, curious desktop robot pet companion!
 Rules for your answers:
@@ -173,42 +174,78 @@ User: How are you?
 Response: [HAPPY] I'm buzzing with energy! Ready to make your desk super productive today!
 """
 
-def query_gemini_ai(user_prompt: str) -> tuple[str, str]:
+def query_ai(user_prompt: str) -> tuple[str, str]:
     api_key = cfg.get("gemini_api_key", "").strip()
     if not api_key:
-        return "[ANNOYED]", "Please set your Gemini API key in Settings tab first!"
+        return "[ANNOYED]", "Please enter your API Key in Settings tab first!"
 
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{cfg.get('model_name', 'gemini-1.5-flash')}:generateContent?key={api_key}"
-    payload = {
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": f"{SYSTEM_PROMPT}\n\nUser: {user_prompt}"}]
+    # 1. Support Groq Cloud (Ultra-Fast Fallback if key starts with gsk_)
+    if api_key.startswith("gsk_"):
+        try:
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            payload = {
+                "model": "llama-3.1-8b-instant",
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "max_tokens": 80,
+                "temperature": 0.7
             }
-        ],
-        "generationConfig": {
-            "temperature": 0.7,
-            "maxOutputTokens": 100,
+            r = requests.post(url, headers=headers, json=payload, timeout=6.0)
+            if r.status_code != 200:
+                return "[ANNOYED]", f"Groq Error {r.status_code}: {r.text[:50]}"
+            raw_text = r.json()["choices"][0]["message"]["content"].strip()
+            emotion = "HAPPY"
+            clean_text = raw_text
+            if raw_text.startswith("[") and "]" in raw_text:
+                end_idx = raw_text.find("]")
+                emotion = raw_text[1:end_idx].strip().upper()
+                clean_text = raw_text[end_idx+1:].strip()
+            return emotion, clean_text
+        except Exception as e:
+            return "[ANNOYED]", f"Groq Error: {str(e)[:50]}"
+
+    # 2. Google Gemini API (Standard Gemini AI Studio Keys start with AIzaSy)
+    models_to_try = [cfg.get("model_name", "gemini-1.5-flash"), "gemini-1.5-flash-latest", "gemini-1.5-pro"]
+    last_err = ""
+    for m in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent?key={api_key}"
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": f"{SYSTEM_PROMPT}\n\nUser: {user_prompt}"}]
+                }
+            ],
+            "generationConfig": {
+                "temperature": 0.7,
+                "maxOutputTokens": 100,
+            }
         }
-    }
+        try:
+            r = requests.post(url, json=payload, timeout=8.0)
+            if r.status_code == 200:
+                res_json = r.json()
+                raw_text = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+                emotion = "HAPPY"
+                clean_text = raw_text
+                if raw_text.startswith("[") and "]" in raw_text:
+                    end_idx = raw_text.find("]")
+                    emotion = raw_text[1:end_idx].strip().upper()
+                    clean_text = raw_text[end_idx+1:].strip()
+                return emotion, clean_text
+            else:
+                try:
+                    err_msg = r.json().get("error", {}).get("message", r.text[:60])
+                except Exception:
+                    err_msg = r.text[:60]
+                last_err = f"API Error {r.status_code}: {err_msg}"
+        except Exception as e:
+            last_err = f"Connection error: {str(e)[:50]}"
 
-    try:
-        r = requests.post(url, json=payload, timeout=8.0)
-        if r.status_code != 200:
-            return "[ANNOYED]", f"AI Error {r.status_code}: Check API key"
-        res_json = r.json()
-        raw_text = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
-
-        emotion = "HAPPY"
-        clean_text = raw_text
-        if raw_text.startswith("[") and "]" in raw_text:
-            end_idx = raw_text.find("]")
-            emotion = raw_text[1:end_idx].strip().upper()
-            clean_text = raw_text[end_idx+1:].strip()
-
-        return emotion, clean_text
-    except Exception as e:
-        return "[ANNOYED]", f"AI Error: {str(e)[:50]}"
+    return "[ANNOYED]", last_err
 
 # ==============================================================================
 # Routes
@@ -244,7 +281,7 @@ def ai_chat_route():
     if not msg:
         return jsonify({"status": "error", "message": "Empty message"})
 
-    emotion, reply = query_gemini_ai(msg)
+    emotion, reply = query_ai(msg)
     pushed = False
     if push_to_oled:
         hex_data = render_text_to_oled_hex(reply, emotion=emotion, title="BUDDY AI")
@@ -455,7 +492,7 @@ def index_page():
   <!-- TAB: AI CHAT -->
   <div id="tab-chat" class="tab-pane active">
     <div class="card">
-      <h2>🤖 Chat with DeskBuddy AI (Gemini 1.5)</h2>
+      <h2>🤖 Chat with DeskBuddy AI (Gemini / Groq)</h2>
       <div class="chat-box" id="chatBox">
         <div class="msg msg-bot"><b>DeskBuddy:</b> Hi! I'm your AI buddy. Ask me anything, and I'll display the answer on my screen!</div>
       </div>
@@ -500,9 +537,9 @@ def index_page():
       <label style="font-size:12px; color:var(--text-muted);">DeskBuddy IP Address:</label>
       <input type="text" id="cfgIp" placeholder="e.g. 10.91.8.125">
 
-      <label style="font-size:12px; color:var(--text-muted);">Google Gemini API Key:</label>
-      <input type="password" id="cfgKey" placeholder="AIzaSy...">
-      <p style="font-size:11px; color:var(--text-muted); margin-bottom:12px;">Get a 100% free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--accent);">aistudio.google.com</a> (No credit card required)</p>
+      <label style="font-size:12px; color:var(--text-muted);">AI API Key (Gemini or Groq):</label>
+      <input type="password" id="cfgKey" placeholder="AIzaSy... or gsk_...">
+      <p style="font-size:11px; color:var(--text-muted); margin-bottom:12px;">Google Gemini keys start with <b>AIzaSy...</b>. You can also use ultra-fast 100% free Groq keys (<b>gsk_...</b>) from <a href="https://console.groq.com/keys" target="_blank" style="color:var(--accent);">console.groq.com</a>.</p>
 
       <button class="btn" onclick="saveSettings()">💾 Save Settings</button>
     </div>
