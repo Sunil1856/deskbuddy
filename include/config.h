@@ -19,7 +19,7 @@
 // --- Touch Timing (ms) ---
 #define TOUCH_DEBOUNCE_MS       28       // Balanced 28ms debounce (filters RF & electrical noise, retains snappy response)
 #define TOUCH_TAP_MAX_MS        300      // Natural tap window (< 300ms)
-#define TOUCH_DOUBLE_GAP_MS     350      // Relaxed 350ms gap so double-tap is effortless and reliable
+#define TOUCH_DOUBLE_GAP_MS     280      // Fast 280ms gap: Snappy single-tap response + easy double-tap
 #define TOUCH_LONG_PRESS_MS     650      // Crisp 650ms long press for Enter / Action / Menu
 #define TOUCH_HOLD_MS           1400     // 1.4s hold threshold
 #define TOUCH_DEEP_HOLD_MS      3000     // 3.0s deep hold

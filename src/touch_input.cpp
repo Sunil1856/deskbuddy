@@ -5,15 +5,22 @@
 
 void TouchInput::begin() {
     pinMode(PIN_TOUCH, INPUT_PULLDOWN);
+    reset();
+}
+
+void TouchInput::reset() {
     _tapState = TapState::IDLE;
     _touching = false;
     _lastRawReading = false;
     _debouncedState = false;
     _touchStart = 0;
     _touchEnd = 0;
-    _lastDebounceTime = 0;
+    _lastDebounceTime = millis();
     _firstTapTime = 0;
     _secondTapTime = 0;
+    _longPressFired = false;
+    _holdFired = false;
+    _deepHoldFired = false;
 }
 
 unsigned long TouchInput::touchDuration() const {

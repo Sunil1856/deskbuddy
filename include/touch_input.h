@@ -22,6 +22,7 @@ typedef void (*TouchCallback)(TouchEvent event);
 class TouchInput {
 public:
     void begin();
+    void reset();
     TouchEvent update();  // Call every frame; returns event if one occurred
     
     // State queries

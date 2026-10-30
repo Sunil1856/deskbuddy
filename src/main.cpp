@@ -82,6 +82,7 @@ void setup() {
     // Connect Photo Studio
     g_wifi.setGallery(&appGallery);
     g_wifi.setOnPhotoUploaded([]() {
+        g_touchInput.reset();
         switchApp(AppID::GALLERY);
     });
     
@@ -96,6 +97,9 @@ void setup() {
 
 void switchApp(AppID newApp) {
     if (g_currentApp == newApp) return;
+    
+    // Clear residual touch state on app switch
+    g_touchInput.reset();
     
     // Capture current frame buffer before transition so fade doesn't flash black/garbage
     g_display.captureScreen();
@@ -297,11 +301,16 @@ void loop() {
         }
         else if (g_currentApp == AppID::GALLERY) {
             if (ev == TouchEvent::LONG_PRESS || ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
-                // Guaranteed exit: Long press / Hold returns directly back to Pet Face!
-                switchApp(AppID::FACE);
+                // Long press opens Menu Carousel
+                g_display.captureScreen();
+                g_menu.show();
             } else if (ev == TouchEvent::TAP) {
-                // Single Tap toggles photo vs video animation
-                appGallery.handleTouch(ev);
+                // Single Tap: if video is playing and photo exists, show photo; otherwise return to Pet Face!
+                if (appGallery.hasVideo() && appGallery.hasPhoto() && appGallery.isPlayingVideo()) {
+                    appGallery.toggleVideoPlay();
+                } else {
+                    switchApp(AppID::FACE);
+                }
             }
             lastAutoCycle = millis();
         }

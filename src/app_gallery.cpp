@@ -76,20 +76,22 @@ void AppGallery::update() {
     }
 }
 
+void AppGallery::toggleVideoPlay() {
+    _isPlayingVideo = !_isPlayingVideo;
+    if (_isPlayingVideo) {
+        _videoCurrentFrame = 0;
+        _videoLastFrameTime = millis();
+    }
+}
+
 void AppGallery::handleTouch(TouchEvent event) {
     if (event == TouchEvent::TAP) {
         if (_hasVideo) {
-            // Single tap toggles between Video playback and Static Photo!
-            _isPlayingVideo = !_isPlayingVideo;
-            if (_isPlayingVideo) {
-                _videoCurrentFrame = 0;
-                _videoLastFrameTime = millis();
-            }
+            toggleVideoPlay();
             if (_face) {
                 _face->addHappiness(8);
             }
         } else {
-            // Photo only: tap adds affection
             if (_face) {
                 _face->addHappiness(5);
             }

@@ -32,6 +32,7 @@ public:
     void clearVideo();
     bool hasVideo() const { return _hasVideo; }
     bool isPlayingVideo() const { return _isPlayingVideo; }
+    void toggleVideoPlay();
     uint8_t getVideoFramesCount() const { return _videoTotalFrames; }
     uint8_t getVideoFps() const { return _videoFps; }
     void setAutoCycle(bool isAutoCycle) { _isAutoCycle = isAutoCycle; }
