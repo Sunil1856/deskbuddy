@@ -36,7 +36,6 @@ private:
     bool _touching = false;
     bool _lastRawReading = false;
     bool _debouncedState = false;
-    bool _watchdogSuppressed = false;
     
     unsigned long _touchStart = 0;
     unsigned long _touchEnd = 0;

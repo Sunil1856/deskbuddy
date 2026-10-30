@@ -82,6 +82,7 @@ public:
     bool hasCustomPhoto();
     bool saveCustomPhoto(const uint8_t* bitmap);
     bool loadCustomPhoto(uint8_t* bitmap);
+    void deleteCustomPhoto();
     bool getPhotoInverted();
     void setPhotoInverted(bool inv);
     

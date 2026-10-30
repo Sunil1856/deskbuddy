@@ -278,6 +278,11 @@ bool Storage::loadCustomPhoto(uint8_t* bitmap) {
     return readLen == 1024;
 }
 
+void Storage::deleteCustomPhoto() {
+    saveBool(NVS_KEY_PHOTO_HAS, false);
+    prefs.remove(NVS_KEY_PHOTO_DATA);
+}
+
 bool Storage::getPhotoInverted() {
     return loadBool(NVS_KEY_PHOTO_INV, false);
 }

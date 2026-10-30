@@ -207,6 +207,13 @@ void WifiManager::_setupStationWebRoutes() {
         
         server.send(200, "application/json", "{\"status\":\"ok\"}");
     });
+
+    server.on("/api/photo/delete", HTTP_POST, []() {
+        if (g_gallery) {
+            g_gallery->clearPhoto();
+        }
+        server.send(200, "application/json", "{\"status\":\"ok\"}");
+    });
     
     // Video upload & management endpoints
     server.on("/api/video/start", HTTP_POST, []() {
@@ -216,7 +223,7 @@ void WifiManager::_setupStationWebRoutes() {
         }
         uint8_t totalFrames = server.hasArg("frames") ? (uint8_t)server.arg("frames").toInt() : 30;
         uint8_t fps = server.hasArg("fps") ? (uint8_t)server.arg("fps").toInt() : 10;
-        if (totalFrames == 0 || totalFrames > 60) totalFrames = 30;
+        if (totalFrames == 0 || totalFrames > 100) totalFrames = 30;
         if (fps == 0 || fps > 30) fps = 10;
         
         bool ok = g_gallery->setVideoStart(totalFrames, fps);

@@ -297,11 +297,10 @@ void loop() {
         }
         else if (g_currentApp == AppID::GALLERY) {
             if (ev == TouchEvent::LONG_PRESS || ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
-                // Long press opens Menu Carousel
-                g_display.captureScreen();
-                g_menu.show();
-            } else {
-                // Single Tap keeps displaying photo safely (never kicks user out!)
+                // Guaranteed exit: Long press / Hold returns directly back to Pet Face!
+                switchApp(AppID::FACE);
+            } else if (ev == TouchEvent::TAP) {
+                // Single Tap toggles photo vs video animation
                 appGallery.handleTouch(ev);
             }
             lastAutoCycle = millis();

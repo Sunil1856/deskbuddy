@@ -18,7 +18,7 @@ static const MenuItem MENU_ITEMS[MENU_ITEM_COUNT] = {
     {AppID::WORLD_INFO, "Info",     icon_globe_24},
     {AppID::SERVER,     "Server",   icon_server_24},
     {AppID::GAMES,      "Games",    icon_games_24},
-    {AppID::GALLERY,    "Photo",    icon_photo_24},
+    {AppID::GALLERY,    "Media",    icon_photo_24},
     {AppID::SETTINGS,   "Settings", icon_settings_24}
 };
 

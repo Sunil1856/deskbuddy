@@ -34,7 +34,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   }
   header { text-align: center; margin-bottom: 12px; }
   h1 {
-    font-size: 21px;
+    font-size: 20px;
     color: var(--accent);
     display: flex;
     align-items: center;
@@ -79,6 +79,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   .tab-btn.video-tab.active {
     background: rgba(0,229,255,0.15);
     border-color: var(--accent-blue);
+    color: var(--text-bright);
     box-shadow: 0 0 10px rgba(0,229,255,0.25);
   }
   .container {
@@ -127,7 +128,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     padding: 12px;
     width: 100%;
     border-radius: 8px;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
     cursor: pointer;
     text-align: center;
@@ -147,10 +148,12 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     color: var(--text-bright);
   }
   .control-header span.val { color: var(--accent); }
+  .control-header span.val-blue { color: var(--accent-blue); }
   input[type="range"] {
     width: 100%;
     accent-color: var(--accent);
   }
+  .range-blue { accent-color: var(--accent-blue) !important; }
   .zoom-btn-row {
     display: flex;
     gap: 6px;
@@ -256,6 +259,20 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     color: #8b949e;
     cursor: not-allowed;
   }
+  .btn-danger {
+    margin-top: 10px;
+    width: 100%;
+    padding: 9px;
+    background: rgba(255, 75, 75, 0.1);
+    border: 1px solid #ff4b4b;
+    color: #ff6b6b;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: 0.2s;
+  }
+  .btn-danger:hover { background: rgba(255, 75, 75, 0.2); }
   #toast {
     position: fixed;
     bottom: 20px;
@@ -365,6 +382,9 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     <button class="btn-send" id="sendBtn" disabled>
       💾 Save Photo to DeskBuddy
     </button>
+    <button type="button" class="btn-danger" id="deletePhotoBtn">
+      🗑️ Delete Photo from DeskBuddy
+    </button>
   </div>
 
   <!-- ========================================== -->
@@ -372,44 +392,90 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   <!-- ========================================== -->
   <div id="videoControls" style="display:none;">
     <label class="btn-upload" style="border-color:var(--accent-blue); color:var(--accent-blue);">
-      🎬 Pick Video or Animated GIF (MP4, WebM, GIF)
-      <input type="file" id="videoInput" accept="video/mp4,video/webm,video/quicktime,video/mov,image/gif">
+      🎬 Pick Video or Animated GIF (MP4, WebM, MOV, GIF)
+      <input type="file" id="videoInput" accept="video/mp4,video/webm,video/quicktime,video/mov,video/*,image/gif">
     </label>
 
-    <div id="vStatsPill" style="display:none; margin-bottom:12px; font-size:11px; padding:6px 10px; border-radius:6px; background:#1b2430; border:1px solid var(--accent-blue); color:var(--accent-blue); text-align:center; font-weight:600;">
-      🎞️ <span id="vFramesCount">0</span> Frames &bull; <span id="vFpsVal">10</span> FPS &bull; <span id="vSizeVal">0</span> KB (Lightweight)
+    <div id="vStatsPill" style="display:none; margin-bottom:12px; font-size:11px; padding:7px 10px; border-radius:6px; background:#111b27; border:1px solid var(--accent-blue); color:var(--accent-blue); text-align:center; font-weight:700;">
+      🎞️ <span id="vFramesCount">0</span> Frames &bull; <span id="vFpsVal">8</span> FPS &bull; <span id="vDurationVal">0.0s</span> &bull; <span id="vSizeVal">0</span> KB
+    </div>
+
+    <!-- Video Trim Tool -->
+    <div class="control-group">
+      <div class="control-header">
+        <span>Trim: Start Time in Video</span>
+        <span class="val-blue" id="vStartVal">0.0s</span>
+      </div>
+      <input type="range" class="range-blue" id="vStartSlider" min="0" max="30" step="0.2" value="0">
     </div>
 
     <div class="row-controls">
       <div class="control-group">
-        <div class="control-header"><span>Target FPS</span></div>
-        <select id="vFpsSelect">
-          <option value="8">8 FPS (Ultra Light)</option>
-          <option value="10" selected>10 FPS (Recommended - Smooth)</option>
-          <option value="12">12 FPS (Fluid)</option>
+        <div class="control-header"><span>Max Duration</span></div>
+        <select id="vMaxSecSelect">
+          <option value="2">2 Seconds</option>
+          <option value="4">4 Seconds</option>
+          <option value="6" selected>6 Seconds</option>
+          <option value="8">8 Seconds (Long)</option>
         </select>
       </div>
       <div class="control-group">
-        <div class="control-header"><span>Max Clip Length</span></div>
-        <select id="vMaxSecSelect">
-          <option value="2">2 Seconds (~20 frames)</option>
-          <option value="3" selected>3 Seconds (~30 frames)</option>
-          <option value="4">4 Seconds (~40 frames)</option>
+        <div class="control-header"><span>Playback FPS</span></div>
+        <select id="vFpsSelect">
+          <option value="6">6 FPS (Ultra Light)</option>
+          <option value="8" selected>8 FPS (Smooth &amp; Light)</option>
+          <option value="10">10 FPS (Fluid)</option>
+          <option value="12">12 FPS (Super Fast)</option>
         </select>
+      </div>
+    </div>
+
+    <div class="row-controls">
+      <div class="control-group">
+        <div class="control-header"><span>Scale / Crop</span></div>
+        <select id="vFitMode">
+          <option value="cover" selected>Fill (Cover 128x64)</option>
+          <option value="contain">Fit (Full Video / Bars)</option>
+        </select>
+      </div>
+      <div class="control-group">
+        <div class="control-header"><span>Dither Style</span></div>
+        <select id="vDitherMode">
+          <option value="floyd" selected>Floyd-Steinberg (Artistic)</option>
+          <option value="threshold">Threshold (Crisp B&amp;W)</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row-controls">
+      <div class="control-group">
+        <div class="control-header">
+          <span>Pan X (Left/Right)</span>
+          <span class="val-blue" id="vPanXVal">0</span>
+        </div>
+        <input type="range" class="range-blue" id="vPanXSlider" min="-40" max="40" step="1" value="0">
+      </div>
+      <div class="control-group">
+        <div class="control-header">
+          <span>Pan Y (Up/Down)</span>
+          <span class="val-blue" id="vPanYVal">0</span>
+        </div>
+        <input type="range" class="range-blue" id="vPanYSlider" min="-30" max="30" step="1" value="0">
       </div>
     </div>
 
     <div class="control-group">
       <div class="control-header">
         <span>Black &amp; White Threshold</span>
-        <span class="val" id="vThresholdVal">128</span>
+        <span class="val-blue" id="vThresholdVal">128</span>
       </div>
-      <input type="range" id="vThresholdSlider" min="50" max="200" step="2" value="128">
+      <input type="range" class="range-blue" id="vThresholdSlider" min="50" max="200" step="2" value="128">
     </div>
 
     <div style="display:flex; gap:8px; margin-bottom:12px;">
       <button type="button" class="action-btn" id="vInvertBtn">◐ Invert</button>
-      <button type="button" class="action-btn" id="vPlayPauseBtn">⏸ Pause Preview</button>
+      <button type="button" class="action-btn" id="vPlayPauseBtn">⏸ Pause</button>
+      <button type="button" class="action-btn" id="vStepBtn">⏭ Next Frame</button>
     </div>
 
     <!-- Upload Progress Bar -->
@@ -426,8 +492,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     <button type="button" class="btn-send" id="uploadVideoBtn" style="background:var(--accent-blue); color:#000;" disabled>
       🚀 Upload Video to DeskBuddy
     </button>
-    
-    <button type="button" class="action-btn" id="deleteVideoBtn" style="margin-top:10px; color:#ff6b6b; border-color:#ff6b6b;">
+    <button type="button" class="btn-danger" id="deleteVideoBtn">
       🗑️ Delete Video from DeskBuddy
     </button>
   </div>
@@ -494,6 +559,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   const rotateBtn = document.getElementById('rotateBtn');
   const invertBtn = document.getElementById('invertBtn');
   const sendBtn = document.getElementById('sendBtn');
+  const deletePhotoBtn = document.getElementById('deletePhotoBtn');
   const liveSyncCheck = document.getElementById('liveSyncCheck');
 
   let loadedImg = null;
@@ -608,23 +674,33 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     return hex;
   }
 
+  // Reliable Live OLED Sync (100ms throttle with in-flight lock to prevent drops)
   let isSendingLive = false, pendingLive = false, lastLive = 0;
   function triggerLiveSync() {
     if (!loadedImg || !liveSyncCheck.checked) return;
-    if (isSendingLive || (Date.now() - lastLive < 60)) { pendingLive = true; return; }
+    const now = Date.now();
+    if (isSendingLive || (now - lastLive < 100)) {
+      pendingLive = true;
+      return;
+    }
     sendLive();
   }
-  function sendLive() {
+  async function sendLive() {
     if (!loadedImg || !liveSyncCheck.checked) return;
-    isSendingLive = true; lastLive = Date.now(); pendingLive = false;
-    fetch('/api/photo', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: 'data=' + packCurrentCanvasHex() + '&save=0'
-    }).catch(()=>{}).finally(()=>{
-      isSendingLive = false;
-      if (pendingLive && liveSyncCheck.checked) setTimeout(sendLive, 30);
-    });
+    isSendingLive = true;
+    lastLive = Date.now();
+    pendingLive = false;
+    try {
+      await fetch('/api/photo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'data=' + packCurrentCanvasHex() + '&save=0'
+      });
+    } catch(e) {}
+    isSendingLive = false;
+    if (pendingLive && liveSyncCheck.checked) {
+      setTimeout(sendLive, 80);
+    }
   }
 
   zoomSlider.oninput = () => { zoom = parseFloat(zoomSlider.value); zoomVal.innerText = zoom.toFixed(2)+'x'; renderPhoto(); };
@@ -648,7 +724,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       body: 'data=' + packCurrentCanvasHex() + '&save=1'
     }).then(r=>r.json()).then(d=>{
       sendBtn.disabled = false; sendBtn.innerText = '💾 Save Photo to DeskBuddy';
-      if (d.status === 'ok') showToast('✅ Photo Saved to DeskBuddy!', '#00C853');
+      if (d.status === 'ok') showToast('✅ Photo Saved Permanently!', '#00C853');
       else showToast('Save failed', '#d32f2f');
     }).catch(()=>{
       sendBtn.disabled = false; sendBtn.innerText = '💾 Save Photo to DeskBuddy';
@@ -656,16 +732,39 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     });
   };
 
+  deletePhotoBtn.onclick = () => {
+    if (!confirm('Are you sure you want to remove the photo from DeskBuddy?')) return;
+    fetch('/api/photo/delete', { method: 'POST' })
+      .then(r => r.json())
+      .then(d => {
+        if (d.status === 'ok') {
+          showToast('Photo removed from DeskBuddy');
+          loadedImg = null;
+          sendBtn.disabled = true;
+          drawDefaultGrid('Photo deleted');
+        }
+      });
+  };
+
   // ==========================================
   // VIDEO & GIF STUDIO JAVASCRIPT
   // ==========================================
   const videoInput = document.getElementById('videoInput');
-  const vFpsSelect = document.getElementById('vFpsSelect');
+  const vStartSlider = document.getElementById('vStartSlider');
+  const vStartVal = document.getElementById('vStartVal');
   const vMaxSecSelect = document.getElementById('vMaxSecSelect');
+  const vFpsSelect = document.getElementById('vFpsSelect');
+  const vFitMode = document.getElementById('vFitMode');
+  const vDitherMode = document.getElementById('vDitherMode');
+  const vPanXSlider = document.getElementById('vPanXSlider');
+  const vPanXVal = document.getElementById('vPanXVal');
+  const vPanYSlider = document.getElementById('vPanYSlider');
+  const vPanYVal = document.getElementById('vPanYVal');
   const vThresholdSlider = document.getElementById('vThresholdSlider');
   const vThresholdVal = document.getElementById('vThresholdVal');
   const vInvertBtn = document.getElementById('vInvertBtn');
   const vPlayPauseBtn = document.getElementById('vPlayPauseBtn');
+  const vStepBtn = document.getElementById('vStepBtn');
   const uploadVideoBtn = document.getElementById('uploadVideoBtn');
   const deleteVideoBtn = document.getElementById('deleteVideoBtn');
 
@@ -680,13 +779,35 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     const f = e.target.files[0];
     if (!f) return;
     rawVideoFile = f;
+    vStartSlider.value = 0;
     await processVideo();
   });
 
-  vFpsSelect.onchange = processVideo;
+  vStartSlider.oninput = () => { vStartVal.innerText = parseFloat(vStartSlider.value).toFixed(1) + 's'; processVideo(); };
   vMaxSecSelect.onchange = processVideo;
+  vFpsSelect.onchange = processVideo;
+  vFitMode.onchange = processVideo;
+  vDitherMode.onchange = processVideo;
+  vPanXSlider.oninput = () => { vPanXVal.innerText = vPanXSlider.value; processVideo(); };
+  vPanYSlider.oninput = () => { vPanYVal.innerText = vPanYSlider.value; processVideo(); };
   vThresholdSlider.oninput = () => { vThresholdVal.innerText = vThresholdSlider.value; processVideo(); };
   vInvertBtn.onclick = () => { isVideoInverted = !isVideoInverted; processVideo(); };
+
+  function seekVideoPromise(video, targetTime) {
+    return new Promise(resolve => {
+      let resolved = false;
+      const onSeeked = () => {
+        if (!resolved) {
+          resolved = true;
+          video.removeEventListener('seeked', onSeeked);
+          resolve();
+        }
+      };
+      video.addEventListener('seeked', onSeeked);
+      video.currentTime = Math.min(targetTime, (video.duration || targetTime));
+      setTimeout(onSeeked, 400); // 400ms fallback safety
+    });
+  }
 
   async function processVideo() {
     if (!rawVideoFile || currentMode !== 'video') return;
@@ -695,16 +816,35 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
 
     const fps = parseInt(vFpsSelect.value);
     const maxSec = parseInt(vMaxSecSelect.value);
+    const startTime = parseFloat(vStartSlider.value);
     const thresh = parseInt(vThresholdSlider.value);
+    const fitMode = vFitMode.value;
+    const ditherStyle = vDitherMode.value;
+    const panX = parseInt(vPanXSlider.value);
+    const panY = parseInt(vPanYSlider.value);
 
     try {
       const v = document.createElement('video');
-      v.muted = true; v.playsInline = true;
+      v.preload = 'auto';
+      v.muted = true;
+      v.playsInline = true;
+      v.style.display = 'none';
+      document.body.appendChild(v);
       v.src = URL.createObjectURL(rawVideoFile);
-      await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = rej; });
 
-      const dur = Math.min(v.duration || maxSec, maxSec);
-      const totalFrames = Math.min(Math.max(1, Math.floor(dur * fps)), 45); // Max 45 frames
+      await new Promise((res, rej) => {
+        v.onloadedmetadata = () => res();
+        v.onerror = () => rej(new Error('Cannot open video file'));
+        setTimeout(res, 2500);
+      });
+
+      if (v.duration && v.duration > 0) {
+        vStartSlider.max = Math.max(0, Math.floor((v.duration - 1) * 10) / 10);
+      }
+
+      const availableSec = Math.max(0.5, (v.duration ? v.duration - startTime : maxSec));
+      const dur = Math.min(availableSec, maxSec);
+      const totalFrames = Math.min(Math.max(1, Math.floor(dur * fps)), 96); // Max 96 frames
       const frameInterval = 1.0 / fps;
 
       const off = document.createElement('canvas');
@@ -713,56 +853,100 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
 
       videoFrames = [];
       for (let i = 0; i < totalFrames; i++) {
-        v.currentTime = i * frameInterval;
-        await new Promise(r => v.onseeked = r);
+        const seekT = startTime + (i * frameInterval);
+        await seekVideoPromise(v, seekT);
 
-        offCtx.fillStyle = '#000';
+        offCtx.fillStyle = isVideoInverted ? '#fff' : '#000';
         offCtx.fillRect(0, 0, 128, 64);
         
-        // Scale cover/fit
-        const hR = 128 / v.videoWidth;
-        const vR = 64 / v.videoHeight;
-        const r = Math.max(hR, vR);
-        const shiftX = (128 - v.videoWidth * r) / 2;
-        const shiftY = (64 - v.videoHeight * r) / 2;
-        offCtx.drawImage(v, 0, 0, v.videoWidth, v.videoHeight, shiftX, shiftY, v.videoWidth * r, v.videoHeight * r);
+        let r = 1.0;
+        if (fitMode === 'cover') {
+          r = Math.max(128 / (v.videoWidth || 128), 64 / (v.videoHeight || 64));
+        } else {
+          r = Math.min(128 / (v.videoWidth || 128), 64 / (v.videoHeight || 64));
+        }
+        const w = (v.videoWidth || 128) * r;
+        const h = (v.videoHeight || 64) * r;
+        const shiftX = (128 - w) / 2 + panX;
+        const shiftY = (64 - h) / 2 + panY;
+        offCtx.drawImage(v, shiftX, shiftY, w, h);
 
         const imgData = offCtx.getImageData(0, 0, 128, 64);
-        const hex = convertFrameToHex(imgData, thresh, isVideoInverted);
+        const hex = convertVideoFrameToHex(imgData, thresh, isVideoInverted, ditherStyle);
         videoFrames.push(hex);
       }
+      
       URL.revokeObjectURL(v.src);
+      v.remove();
 
-      // Update stats pill
+      // Update stats
       document.getElementById('vStatsPill').style.display = 'block';
       document.getElementById('vFramesCount').innerText = videoFrames.length;
       document.getElementById('vFpsVal').innerText = fps;
+      document.getElementById('vDurationVal').innerText = (videoFrames.length / fps).toFixed(1) + 's';
       document.getElementById('vSizeVal').innerText = ((videoFrames.length * 1024) / 1024).toFixed(1);
       uploadVideoBtn.disabled = false;
 
+      videoPreviewIndex = 0;
       startVideoPreview();
-      showToast('✅ Animation Ready to Preview & Upload!', '#00C853');
+      showToast('✅ Animation Ready! Preview playing below.', '#00C853');
     } catch(err) {
-      showToast('Error reading video: ' + err, '#d32f2f');
+      showToast('Error: ' + err.message, '#d32f2f');
     }
   }
 
-  function convertFrameToHex(imgData, thresh, inverted) {
+  function convertVideoFrameToHex(imgData, thresh, inverted, style) {
     const d = imgData.data;
+    const gray = new Float32Array(128 * 64);
+    for (let i = 0; i < 128 * 64; i++) {
+      let r = d[i * 4], g = d[i * 4 + 1], b = d[i * 4 + 2];
+      let val = 0.299 * r + 0.587 * g + 0.114 * b;
+      if (inverted) val = 255 - val;
+      gray[i] = val;
+    }
+
     let hex = "";
-    for (let y = 0; y < 64; y++) {
-      for (let byteX = 0; byteX < 16; byteX++) {
-        let b = 0;
-        for (let bit = 0; bit < 8; bit++) {
-          const x = byteX * 8 + bit;
-          const idx = (y * 128 + x) * 4;
-          let val = 0.299 * d[idx] + 0.587 * d[idx+1] + 0.114 * d[idx+2];
-          if (inverted) val = 255 - val;
-          if (val > thresh) b |= (1 << (7 - bit));
+    if (style === 'threshold') {
+      for (let y = 0; y < 64; y++) {
+        for (let byteX = 0; byteX < 16; byteX++) {
+          let b = 0;
+          for (let bit = 0; bit < 8; bit++) {
+            const x = byteX * 8 + bit;
+            if (gray[y * 128 + x] > thresh) b |= (1 << (7 - bit));
+          }
+          let h = b.toString(16);
+          if (h.length < 2) h = "0" + h;
+          hex += h;
         }
-        let h = b.toString(16);
-        if (h.length < 2) h = "0" + h;
-        hex += h;
+      }
+    } else {
+      // Floyd-Steinberg dither for video
+      for (let y = 0; y < 64; y++) {
+        for (let x = 0; x < 128; x++) {
+          const idx = y * 128 + x;
+          const oldV = gray[idx];
+          const newV = oldV > thresh ? 255 : 0;
+          const err = oldV - newV;
+          gray[idx] = newV;
+          if (x + 1 < 128) gray[idx + 1] += err * (7/16);
+          if (y + 1 < 64) {
+            if (x > 0) gray[idx + 128 - 1] += err * (3/16);
+            gray[idx + 128] += err * (5/16);
+            if (x + 1 < 128) gray[idx + 128 + 1] += err * (1/16);
+          }
+        }
+      }
+      for (let y = 0; y < 64; y++) {
+        for (let byteX = 0; byteX < 16; byteX++) {
+          let b = 0;
+          for (let bit = 0; bit < 8; bit++) {
+            const x = byteX * 8 + bit;
+            if (gray[y * 128 + x] > 128) b |= (1 << (7 - bit));
+          }
+          let h = b.toString(16);
+          if (h.length < 2) h = "0" + h;
+          hex += h;
+        }
       }
     }
     return hex;
@@ -772,9 +956,9 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     stopVideoPreview();
     if (videoFrames.length === 0) return;
     isVideoPreviewPlaying = true;
-    vPlayPauseBtn.innerText = '⏸ Pause Preview';
+    vPlayPauseBtn.innerText = '⏸ Pause';
     const fps = parseInt(vFpsSelect.value);
-    const ms = 1000 / (fps > 0 ? fps : 10);
+    const ms = 1000 / (fps > 0 ? fps : 8);
 
     videoPreviewTimer = setInterval(() => {
       drawHexToCanvas(videoFrames[videoPreviewIndex]);
@@ -785,14 +969,22 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   function stopVideoPreview() {
     if (videoPreviewTimer) { clearInterval(videoPreviewTimer); videoPreviewTimer = null; }
     isVideoPreviewPlaying = false;
-    vPlayPauseBtn.innerText = '▶ Resume Preview';
+    vPlayPauseBtn.innerText = '▶ Play';
   }
 
   vPlayPauseBtn.onclick = () => {
     if (isVideoPreviewPlaying) stopVideoPreview(); else startVideoPreview();
   };
 
+  vStepBtn.onclick = () => {
+    stopVideoPreview();
+    if (videoFrames.length === 0) return;
+    videoPreviewIndex = (videoPreviewIndex + 1) % videoFrames.length;
+    drawHexToCanvas(videoFrames[videoPreviewIndex]);
+  };
+
   function drawHexToCanvas(hex) {
+    if (!hex || hex.length < 2048) return;
     const imgData = ctx.createImageData(128, 64);
     const d = imgData.data;
     let byteIdx = 0;
@@ -825,8 +1017,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     const total = videoFrames.length;
 
     try {
-      // 1. Initialize video upload
-      progressText.innerText = 'Initializing...';
+      progressText.innerText = 'Initializing DeskBuddy storage...';
       const startRes = await fetch('/api/video/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -835,7 +1026,6 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
 
       if (startRes.status !== 'ok') throw new Error(startRes.msg || 'Start failed');
 
-      // 2. Upload frames one by one
       for (let i = 0; i < total; i++) {
         const pct = Math.round(((i + 1) / total) * 100);
         progressText.innerText = `Uploading frame ${i + 1} of ${total}...`;
@@ -851,8 +1041,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
         if (fRes.status !== 'ok') throw new Error(`Frame ${i} failed`);
       }
 
-      // 3. Finalize and save
-      progressText.innerText = 'Saving to DeskBuddy...';
+      progressText.innerText = 'Finalizing on DeskBuddy...';
       await fetch('/api/video/end?save=1', { method: 'POST' });
 
       showToast('🎉 Video Uploaded! Playing on DeskBuddy!', '#00C853');
@@ -861,7 +1050,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       showToast('Upload error: ' + err.message, '#d32f2f');
     } finally {
       uploadVideoBtn.disabled = false;
-      setTimeout(() => { progressBox.style.display = 'none'; }, 2000);
+      setTimeout(() => { progressBox.style.display = 'none'; }, 2500);
     }
   };
 

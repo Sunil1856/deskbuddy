@@ -22,6 +22,7 @@ public:
     
     // Photo management
     void setPhoto(const uint8_t* bitmap1024, bool saveToStorage = true);
+    void clearPhoto();
     bool hasPhoto() const { return _hasPhoto; }
 
     // Video & Animation management

@@ -111,8 +111,23 @@ void AppGallery::setPhoto(const uint8_t* bitmap1024, bool saveToStorage) {
     }
 }
 
+void AppGallery::clearPhoto() {
+    _hasPhoto = false;
+    memset(_photo, 0, sizeof(_photo));
+    if (_storage) {
+        _storage->deleteCustomPhoto();
+    }
+    if (_hasVideo) {
+        _isPlayingVideo = true;
+        _videoCurrentFrame = 0;
+        _videoLastFrameTime = millis();
+    } else {
+        _isPlayingVideo = false;
+    }
+}
+
 bool AppGallery::setVideoStart(uint8_t totalFrames, uint8_t fps) {
-    if (totalFrames == 0 || totalFrames > 60) return false;
+    if (totalFrames == 0 || totalFrames > 100) return false;
     
     if (_videoFrames) {
         free(_videoFrames);
@@ -203,7 +218,7 @@ void AppGallery::_loadVideoFromSpiffs() {
     
     uint8_t totalFrames = hdr[4];
     uint8_t fps = hdr[5];
-    if (totalFrames == 0 || totalFrames > 60) { f.close(); return; }
+    if (totalFrames == 0 || totalFrames > 100) { f.close(); return; }
     
     size_t dataLen = (size_t)totalFrames * 1024;
     if (f.size() < 8 + dataLen) { f.close(); return; }
