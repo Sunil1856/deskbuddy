@@ -182,8 +182,12 @@ void loop() {
     
     if (cycleIntervalMs > 0 && millis() - lastAutoCycle > cycleIntervalMs) {
         lastAutoCycle = millis();
-        // Do not auto-cycle away if menu is open, in games, in settings, or if clock is actively timing, or if Buddy is sleeping
+        // Do not auto-cycle away if menu is open, in games, in settings, or if clock is actively timing, or if Buddy is sleeping, or if actively watching a video in Gallery!
         if (!g_menu.isActive() && g_currentApp != AppID::GAMES && g_currentApp != AppID::SETTINGS && !appClock.isBusy() && !g_face.isSleeping()) {
+            if (g_currentApp == AppID::GALLERY && appGallery.isPlayingVideo()) {
+                // User is actively enjoying their custom video, don't interrupt!
+                return;
+            }
             AppID nextTab;
             switch (g_currentApp) {
                 case AppID::FACE:       nextTab = AppID::CLOCK; break;
@@ -197,6 +201,9 @@ void loop() {
                     break;
                 case AppID::GALLERY:    nextTab = AppID::FACE; break;
                 default:                nextTab = AppID::CLOCK; break;
+            }
+            if (nextTab == AppID::GALLERY) {
+                appGallery.setAutoCycle(true); // User requirement: Never play video in background cycle!
             }
             switchApp(nextTab);
         }

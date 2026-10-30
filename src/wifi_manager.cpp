@@ -208,6 +208,83 @@ void WifiManager::_setupStationWebRoutes() {
         server.send(200, "application/json", "{\"status\":\"ok\"}");
     });
     
+    // Video upload & management endpoints
+    server.on("/api/video/start", HTTP_POST, []() {
+        if (!g_gallery) {
+            server.send(500, "application/json", "{\"status\":\"error\",\"msg\":\"Gallery not ready\"}");
+            return;
+        }
+        uint8_t totalFrames = server.hasArg("frames") ? (uint8_t)server.arg("frames").toInt() : 30;
+        uint8_t fps = server.hasArg("fps") ? (uint8_t)server.arg("fps").toInt() : 10;
+        if (totalFrames == 0 || totalFrames > 60) totalFrames = 30;
+        if (fps == 0 || fps > 30) fps = 10;
+        
+        bool ok = g_gallery->setVideoStart(totalFrames, fps);
+        if (ok) {
+            server.send(200, "application/json", "{\"status\":\"ok\"}");
+        } else {
+            server.send(500, "application/json", "{\"status\":\"error\",\"msg\":\"Out of memory\"}");
+        }
+    });
+    
+    server.on("/api/video/frame", HTTP_POST, []() {
+        if (!g_gallery || !server.hasArg("idx") || !server.hasArg("data")) {
+            server.send(400, "application/json", "{\"status\":\"error\",\"msg\":\"Missing parameters\"}");
+            return;
+        }
+        uint8_t idx = (uint8_t)server.arg("idx").toInt();
+        String hex = server.arg("data");
+        if (hex.length() < 2048) {
+            server.send(400, "application/json", "{\"status\":\"error\",\"msg\":\"Frame size invalid\"}");
+            return;
+        }
+        uint8_t buffer[1024];
+        for (int i = 0; i < 1024; i++) {
+            buffer[i] = (hexNibble(hex[i * 2]) << 4) | hexNibble(hex[i * 2 + 1]);
+        }
+        bool ok = g_gallery->setVideoFrame(idx, buffer);
+        if (ok) {
+            server.send(200, "application/json", "{\"status\":\"ok\"}");
+        } else {
+            server.send(400, "application/json", "{\"status\":\"error\",\"msg\":\"Failed to store frame\"}");
+        }
+    });
+    
+    server.on("/api/video/end", HTTP_POST, []() {
+        if (!g_gallery) {
+            server.send(500, "application/json", "{\"status\":\"error\"}");
+            return;
+        }
+        bool save = true;
+        if (server.hasArg("save")) {
+            save = (server.arg("save") == "1");
+        }
+        g_gallery->setVideoEnd(save);
+        if (g_photoCb) {
+            g_photoCb(); // Instantly switch display to Gallery to watch the new video!
+        }
+        server.send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+    
+    server.on("/api/video/delete", HTTP_POST, []() {
+        if (g_gallery) {
+            g_gallery->clearVideo();
+        }
+        server.send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+    
+    server.on("/api/gallery/info", HTTP_GET, []() {
+        if (!g_gallery) {
+            server.send(500, "application/json", "{\"status\":\"error\"}");
+            return;
+        }
+        String json = "{\"status\":\"ok\",\"hasPhoto\":" + String(g_gallery->hasPhoto() ? "true" : "false") +
+                      ",\"hasVideo\":" + String(g_gallery->hasVideo() ? "true" : "false") +
+                      ",\"frames\":" + String(g_gallery->getVideoFramesCount()) +
+                      ",\"fps\":" + String(g_gallery->getVideoFps()) + "}";
+        server.send(200, "application/json", json);
+    });
+    
     server.on("/api/status", HTTP_GET, []() {
         server.send(200, "application/json", "{\"status\":\"online\",\"device\":\"DeskBuddy\"}");
     });
