@@ -1,24 +1,21 @@
 #!/usr/bin/env python3
 # ==============================================================================
-# DeskBuddy Smart Brain Server (Mobile & Cloud AI Companion Backend)
+# DeskBuddy Smart Brain Server (Android Termux & Cloud AI Companion Backend)
+# Powered by Flask (100% Pure Python - Zero Rust / Zero Maturin build needed!)
 # ==============================================================================
 import os
 import sys
 import json
 import time
 import shutil
-import asyncio
+import socket
 import tempfile
 import subprocess
 from pathlib import Path
-from typing import Optional, List
 
-from fastapi import FastAPI, UploadFile, File, Form, Request, BackgroundTasks
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from flask import Flask, request, jsonify, render_template_string
 import requests
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageDraw, ImageOps
 
 CONFIG_FILE = Path(__file__).parent / "config.json"
 
@@ -45,29 +42,31 @@ def load_config():
         print(f"[CONFIG] Error loading config: {e}")
         return DEFAULT_CONFIG.copy()
 
-def save_config(cfg):
+def save_config(c):
     try:
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=2)
+            json.dump(c, f, indent=2)
     except Exception as e:
         print(f"[CONFIG] Error saving config: {e}")
 
 cfg = load_config()
 
-app = FastAPI(title="DeskBuddy Brain Server")
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = Flask(__name__)
+
+def get_local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
 
 # ==============================================================================
 # Helper: Pillow Image to SSD1306 1024-Byte Hex String
 # ==============================================================================
 def pil_to_ssd1306_hex(img: Image.Image, dither_mode: str = "floyd", invert: bool = False) -> str:
-    # 1. Resize & Crop to 128x64 maintaining aspect ratio
     img = img.convert("RGB")
     target_w, target_h = 128, 64
     img_ratio = img.width / img.height
@@ -84,18 +83,15 @@ def pil_to_ssd1306_hex(img: Image.Image, dither_mode: str = "floyd", invert: boo
         top = (new_h - target_h) // 2
         img = img.crop((0, top, target_w, top + target_h))
 
-    # 2. Dither / Binarize
     if dither_mode == "floyd":
         img_1bit = img.convert("1", dither=Image.Dither.FLOYDSTEINBERG)
     else:
-        # Crisp threshold
         gray = img.convert("L")
         img_1bit = gray.point(lambda p: 255 if p > 128 else 0, mode='1')
 
     if invert:
         img_1bit = ImageOps.invert(img_1bit.convert("L")).convert("1")
 
-    # 3. Pack 128x64 to 1024 bytes (16 bytes per row, MSB first)
     pixels = img_1bit.load()
     hex_parts = []
     for y in range(64):
@@ -103,16 +99,12 @@ def pil_to_ssd1306_hex(img: Image.Image, dither_mode: str = "floyd", invert: boo
             b = 0
             for bit in range(8):
                 x = byte_x * 8 + bit
-                # in mode 1, 255 is White (LED ON)
                 if pixels[x, y] > 128:
                     b |= (1 << (7 - bit))
             hex_parts.append(f"{b:02x}")
 
     return "".join(hex_parts)
 
-# ==============================================================================
-# Helper: Push Hex Frame / Photo to DeskBuddy ESP32
-# ==============================================================================
 def send_photo_to_deskbuddy(hex_str: str, save_permanent: bool = True) -> bool:
     target_ip = cfg.get("deskbuddy_ip", "10.91.8.125")
     url = f"http://{target_ip}/api/photo"
@@ -127,21 +119,14 @@ def send_photo_to_deskbuddy(hex_str: str, save_permanent: bool = True) -> bool:
         print(f"[DESKBUDDY] Photo send failed: {e}")
         return False
 
-# ==============================================================================
-# Helper: Render AI Text / Message directly onto 128x64 OLED Bitmap
-# ==============================================================================
-def render_text_to_oled_hex(text: str, emotion: str = "HAPPY", title: str = "DESKBUDDY AI") -> str:
+def render_text_to_oled_hex(text: str, emotion: str = "HAPPY", title: str = "BUDDY AI") -> str:
     img = Image.new("1", (128, 64), 0)
     draw = ImageDraw.Draw(img)
 
-    # Header bar
     draw.line([(0, 11), (127, 11)], fill=1)
-    # Header Title
-    draw.text((2, 1), f"🤖 {title[:14]}", fill=1)
-    # Emotion tag in corner
-    draw.text((88, 1), f"[{emotion[:4]}]", fill=1)
+    draw.text((2, 1), f"🤖 {title[:12]}", fill=1)
+    draw.text((86, 1), f"[{emotion[:4]}]", fill=1)
 
-    # Word wrap text for 128x64 (approx 20 chars per line, 4 lines)
     words = text.split()
     lines = []
     cur_line = ""
@@ -162,7 +147,6 @@ def render_text_to_oled_hex(text: str, emotion: str = "HAPPY", title: str = "DES
         draw.text((2, y), line, fill=1)
         y += 12
 
-    # Return packed hex string
     pixels = img.load()
     hex_parts = []
     for row_y in range(64):
@@ -211,11 +195,10 @@ def query_gemini_ai(user_prompt: str) -> tuple[str, str]:
     try:
         r = requests.post(url, json=payload, timeout=8.0)
         if r.status_code != 200:
-            return "[ANNOYED]", f"AI Error: {r.status_code} ({r.text[:60]})"
+            return "[ANNOYED]", f"AI Error {r.status_code}: Check API key"
         res_json = r.json()
         raw_text = res_json["candidates"][0]["content"]["parts"][0]["text"].strip()
 
-        # Parse emotion tag
         emotion = "HAPPY"
         clean_text = raw_text
         if raw_text.startswith("[") and "]" in raw_text:
@@ -225,105 +208,98 @@ def query_gemini_ai(user_prompt: str) -> tuple[str, str]:
 
         return emotion, clean_text
     except Exception as e:
-        return "[ANNOYED]", f"Connection error: {str(e)[:60]}"
+        return "[ANNOYED]", f"AI Error: {str(e)[:50]}"
 
 # ==============================================================================
-# API Endpoints
+# Routes
 # ==============================================================================
-@app.get("/api/config")
-def get_config_endpoint():
-    return cfg
-
-@app.post("/api/config")
-def update_config_endpoint(data: dict):
+@app.route("/api/config", methods=["GET", "POST"])
+def config_route():
     global cfg
-    for k in ["deskbuddy_ip", "gemini_api_key", "default_fps", "default_dither"]:
-        if k in data:
-            cfg[k] = data[k]
-    save_config(cfg)
-    return {"status": "ok", "config": cfg}
+    if request.method == "POST":
+        data = request.get_json(silent=True) or {}
+        for k in ["deskbuddy_ip", "gemini_api_key", "default_fps", "default_dither"]:
+            if k in data:
+                cfg[k] = data[k]
+        save_config(cfg)
+        return jsonify({"status": "ok", "config": cfg})
+    return jsonify(cfg)
 
-@app.get("/api/ping")
-def ping_deskbuddy():
+@app.route("/api/ping", methods=["GET"])
+def ping_route():
     target_ip = cfg.get("deskbuddy_ip", "10.91.8.125")
     try:
         t0 = time.time()
-        r = requests.get(f"http://{target_ip}/api/photo", timeout=2.0)
+        requests.get(f"http://{target_ip}/api/photo", timeout=2.0)
         latency_ms = int((time.time() - t0) * 1000)
-        return {"online": True, "ip": target_ip, "latency_ms": latency_ms}
+        return jsonify({"online": True, "ip": target_ip, "latency_ms": latency_ms})
     except Exception:
-        return {"online": False, "ip": target_ip, "latency_ms": -1}
+        return jsonify({"online": False, "ip": target_ip, "latency_ms": -1})
 
-class AIChatRequest(BaseModel):
-    message: str
-    push_to_oled: bool = True
+@app.route("/api/ai/chat", methods=["POST"])
+def ai_chat_route():
+    data = request.get_json(silent=True) or {}
+    msg = data.get("message", "").strip()
+    push_to_oled = data.get("push_to_oled", True)
+    if not msg:
+        return jsonify({"status": "error", "message": "Empty message"})
 
-@app.post("/api/ai/chat")
-def chat_ai_endpoint(req: AIChatRequest):
-    emotion, reply = query_gemini_ai(req.message)
+    emotion, reply = query_gemini_ai(msg)
     pushed = False
-    if req.push_to_oled:
+    if push_to_oled:
         hex_data = render_text_to_oled_hex(reply, emotion=emotion, title="BUDDY AI")
         pushed = send_photo_to_deskbuddy(hex_data, save_permanent=False)
-    return {
+
+    return jsonify({
         "status": "ok",
         "emotion": emotion,
         "reply": reply,
         "pushed_to_oled": pushed
-    }
+    })
 
-@app.post("/api/media/upload-photo")
-async def upload_photo(
-    file: UploadFile = File(...),
-    dither: str = Form("floyd"),
-    invert: bool = Form(False),
-    save: bool = Form(True)
-):
+@app.route("/api/media/upload-photo", methods=["POST"])
+def upload_photo_route():
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"status": "error", "message": "No file uploaded"})
+    dither = request.form.get("dither", "floyd")
+    invert = request.form.get("invert", "false").lower() == "true"
+    save = request.form.get("save", "true").lower() == "true"
+
     try:
-        contents = await file.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".img") as tmp:
-            tmp.write(contents)
-            tmp_path = tmp.name
-
-        img = Image.open(tmp_path)
+        img = Image.open(f.stream)
         hex_str = pil_to_ssd1306_hex(img, dither_mode=dither, invert=invert)
-        os.unlink(tmp_path)
-
         ok = send_photo_to_deskbuddy(hex_str, save_permanent=save)
-        return {"status": "ok" if ok else "failed", "pushed": ok}
+        return jsonify({"status": "ok" if ok else "failed", "pushed": ok})
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return jsonify({"status": "error", "message": str(e)})
 
-@app.post("/api/media/upload-video")
-async def upload_video(
-    file: UploadFile = File(...),
-    fps: int = Form(10),
-    max_duration: int = Form(8),
-    dither: str = Form("floyd"),
-    invert: bool = Form(False)
-):
-    """Instant Video / GIF Converter using FFmpeg & In-Memory Pipeline"""
+@app.route("/api/media/upload-video", methods=["POST"])
+def upload_video_route():
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"status": "error", "message": "No video file"})
+
+    fps = int(request.form.get("fps", 10))
+    max_duration = int(request.form.get("max_duration", 8))
+    dither = request.form.get("dither", "floyd")
+    invert = request.form.get("invert", "false").lower() == "true"
+
     if fps <= 0 or fps > 20: fps = 10
     if max_duration <= 0 or max_duration > 10: max_duration = 8
     target_frames = min(100, fps * max_duration)
 
-    contents = await file.read()
-    suffix = Path(file.filename).suffix or ".mp4"
+    suffix = Path(f.filename).suffix or ".mp4"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_in:
-        tmp_in.write(contents)
+        f.save(tmp_in)
         input_file = tmp_in.name
 
     out_dir = tempfile.mkdtemp()
     try:
-        # Check if ffmpeg is installed
         ffmpeg_bin = shutil.which("ffmpeg")
         if not ffmpeg_bin:
-            return JSONResponse(
-                status_code=500,
-                content={"status": "error", "message": "FFmpeg not found! Run 'pkg install ffmpeg' in Termux."}
-            )
+            return jsonify({"status": "error", "message": "FFmpeg not found! Run 'pkg install ffmpeg' in Termux."}), 500
 
-        # Fast extract frames directly resized to 128x64 using FFmpeg
         out_pattern = os.path.join(out_dir, "frame_%04d.png")
         cmd = [
             ffmpeg_bin, "-y", "-i", input_file,
@@ -333,19 +309,17 @@ async def upload_video(
         ]
         proc = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         if proc.returncode != 0:
-            return JSONResponse(status_code=500, content={"status": "error", "message": "FFmpeg conversion failed"})
+            return jsonify({"status": "error", "message": "FFmpeg conversion failed"}), 500
 
         frame_files = sorted(Path(out_dir).glob("frame_*.png"))[:target_frames]
         if not frame_files:
-            return JSONResponse(status_code=400, content={"status": "error", "message": "No frames extracted"})
+            return jsonify({"status": "error", "message": "No frames extracted"}), 400
 
-        # Convert each frame to 1024-byte hex string in RAM
         hex_frames = []
         for fp in frame_files:
             with Image.open(fp) as f_img:
                 hex_frames.append(pil_to_ssd1306_hex(f_img, dither_mode=dither, invert=invert))
 
-        # Push to DeskBuddy ESP32
         target_ip = cfg.get("deskbuddy_ip", "10.91.8.125")
         start_res = requests.post(
             f"http://{target_ip}/api/video/start",
@@ -353,7 +327,7 @@ async def upload_video(
             timeout=3.0
         ).json()
         if start_res.get("status") != "ok":
-            return {"status": "error", "message": "DeskBuddy rejected video start"}
+            return jsonify({"status": "error", "message": "DeskBuddy rejected video start"})
 
         for idx, h_data in enumerate(hex_frames):
             requests.post(
@@ -363,14 +337,14 @@ async def upload_video(
             )
 
         requests.post(f"http://{target_ip}/api/video/end?save=1", timeout=3.0)
-        return {
+        return jsonify({
             "status": "ok",
             "frames_uploaded": len(hex_frames),
             "fps": fps,
             "duration": round(len(hex_frames) / fps, 1)
-        }
+        })
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        return jsonify({"status": "error", "message": str(e)})
     finally:
         if os.path.exists(input_file): os.unlink(input_file)
         shutil.rmtree(out_dir, ignore_errors=True)
@@ -378,9 +352,9 @@ async def upload_video(
 # ==============================================================================
 # Web UI Dashboard (Mobile First, Beautiful Modern Dark Theme)
 # ==============================================================================
-@app.get("/", response_class=HTMLResponse)
+@app.route("/")
 def index_page():
-    return """<!DOCTYPE html>
+    return render_template_string("""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -673,10 +647,14 @@ def index_page():
 </script>
 </body>
 </html>
-"""
+""")
 
 if __name__ == "__main__":
-    import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    print(f"🚀 DeskBuddy Brain Server starting on port {port}...")
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    local_ip = get_local_ip()
+    print("=" * 60)
+    print("🤖 DeskBuddy Smart Brain Server Running!")
+    print(f"👉 Local Access:  http://localhost:{port}")
+    print(f"👉 Wi-Fi Access:  http://{local_ip}:{port}")
+    print("=" * 60)
+    app.run(host="0.0.0.0", port=port, debug=False)

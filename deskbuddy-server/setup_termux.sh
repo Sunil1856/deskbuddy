@@ -17,17 +17,16 @@ pkg update -y
 echo "📦 Installing Python, FFmpeg & System dependencies..."
 pkg install -y python python-pillow ffmpeg git wget curl
 
-# 4. Install Python Requirements
+# 4. Install 100% Pure Python Libraries (Flask, Requests, Edge-TTS)
+# (Zero Rust, Zero Maturin, Zero compile errors!)
 echo "🐍 Installing Python Libraries..."
-pip install --upgrade pip
-pip install fastapi uvicorn requests python-multipart edge-tts
+pip install flask requests edge-tts
 
 # 5. Make start script executable
-chmod +x start.sh 2>/dev/null
+chmod +x start.sh tunnel.sh 2>/dev/null
 
 echo ""
 echo "=========================================================="
-echo "🎉 Setup Complete! To start the server anytime, just run:"
-echo "   ./start.sh"
+echo "🎉 Setup Complete! Starting server now..."
 echo "=========================================================="
 ./start.sh
