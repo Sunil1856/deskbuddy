@@ -1,0 +1,8 @@
+{
+  "deskbuddy_ip": "10.91.8.125",
+  "gemini_api_key": "",
+  "model_name": "gemini-1.5-flash",
+  "default_fps": 10,
+  "default_dither": "floyd",
+  "voice": "hi-IN-SwaraNeural"
+}
