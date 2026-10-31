@@ -11,4 +11,4 @@ echo "=========================================================="
 echo "🤖 Starting DeskBuddy Brain Server..."
 echo "=========================================================="
 
-python3 server.py
+python3 server.py "$@"

@@ -12,6 +12,8 @@ import shutil
 import socket
 import tempfile
 import subprocess
+import re
+import threading
 from pathlib import Path
 
 from flask import Flask, request, jsonify, render_template_string
@@ -63,6 +65,109 @@ def get_local_ip():
         return ip
     except Exception:
         return "127.0.0.1"
+
+# ==============================================================================
+# Cloudflare Global Tunnel Manager (Anywhere in the world access)
+# ==============================================================================
+tunnel_process = None
+tunnel_url = None
+tunnel_lock = threading.Lock()
+
+def ensure_cloudflared_installed():
+    if shutil.which("cloudflared"):
+        return True
+    # Try pkg install in Termux
+    try:
+        subprocess.run(["pkg", "install", "-y", "cloudflared"], capture_output=True, timeout=40)
+        if shutil.which("cloudflared"):
+            return True
+    except Exception:
+        pass
+    # Try downloading official static ARM binary
+    try:
+        import platform
+        arch = platform.machine()
+        bin_url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64" if ("aarch" in arch or "arm64" in arch) else "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm"
+        target_path = os.environ.get("PREFIX", "/data/data/com.termux/files/usr") + "/bin/cloudflared"
+        r = requests.get(bin_url, timeout=30, stream=True)
+        if r.status_code == 200:
+            with open(target_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            os.chmod(target_path, 0o755)
+            return True
+    except Exception as e:
+        print(f"[TUNNEL] Error fetching cloudflared: {e}")
+    return False
+
+def start_tunnel_thread(local_port=8000):
+    global tunnel_process, tunnel_url
+    with tunnel_lock:
+        if tunnel_process and tunnel_process.poll() is None and tunnel_url:
+            return tunnel_url
+
+        if not shutil.which("cloudflared"):
+            print("[TUNNEL] Checking cloudflared binary...")
+            ensure_cloudflared_installed()
+
+        if not shutil.which("cloudflared"):
+            print("[TUNNEL] Cloudflared not found. Install via: pkg install cloudflared")
+            return None
+
+        try:
+            cmd = ["cloudflared", "tunnel", "--url", f"http://127.0.0.1:{local_port}"]
+            tunnel_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
+        except Exception as e:
+            print(f"[TUNNEL] Failed to start cloudflared: {e}")
+            return None
+
+    def reader():
+        global tunnel_url
+        url_pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
+        for line in iter(tunnel_process.stdout.readline, ''):
+            if not line:
+                break
+            m = url_pattern.search(line)
+            if m and not tunnel_url:
+                tunnel_url = m.group(0)
+                print("\n" + "=" * 65)
+                print("🌐 CLOUDFLARE GLOBAL URL (ACCESS FROM ANYWHERE IN THE WORLD):")
+                print(f"👉 {tunnel_url}")
+                print("=" * 65 + "\n")
+        if tunnel_process and tunnel_process.stdout:
+            tunnel_process.stdout.close()
+
+    t = threading.Thread(target=reader, daemon=True)
+    t.start()
+
+    # Wait up to 12s for tunnel URL
+    t0 = time.time()
+    while time.time() - t0 < 12:
+        if tunnel_url:
+            return tunnel_url
+        time.sleep(0.3)
+    return tunnel_url
+
+def stop_tunnel():
+    global tunnel_process, tunnel_url
+    with tunnel_lock:
+        if tunnel_process:
+            try:
+                tunnel_process.terminate()
+                tunnel_process.wait(timeout=3)
+            except Exception:
+                try:
+                    tunnel_process.kill()
+                except Exception:
+                    pass
+            tunnel_process = None
+        tunnel_url = None
 
 # ==============================================================================
 # Helper: Pillow Image to SSD1306 1024-Byte Hex String
@@ -280,6 +385,24 @@ def ping_route():
     except Exception:
         return jsonify({"online": False, "ip": target_ip, "latency_ms": -1})
 
+@app.route("/api/tunnel/status", methods=["GET"])
+def tunnel_status_route():
+    is_running = (tunnel_process is not None and tunnel_process.poll() is None and tunnel_url is not None)
+    return jsonify({"running": is_running, "url": tunnel_url if is_running else None})
+
+@app.route("/api/tunnel/start", methods=["POST"])
+def tunnel_start_route():
+    port = int(os.environ.get("PORT", 8000))
+    url = start_tunnel_thread(port)
+    if url:
+        return jsonify({"status": "ok", "url": url})
+    return jsonify({"status": "error", "message": "Failed to start Cloudflare tunnel. Run 'pkg install cloudflared' in Termux."})
+
+@app.route("/api/tunnel/stop", methods=["POST"])
+def tunnel_stop_route():
+    stop_tunnel()
+    return jsonify({"status": "ok"})
+
 @app.route("/api/ai/chat", methods=["POST"])
 def ai_chat_route():
     data = request.get_json(silent=True) or {}
@@ -490,6 +613,21 @@ def index_page():
     </div>
   </header>
 
+  <!-- GLOBAL CLOUDFLARE TUNNEL BANNER -->
+  <div style="margin-bottom:14px; padding:10px 14px; border-radius:10px; background:#161c27; border:1px solid #30363d; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span style="font-size:18px;">🌐</span>
+      <div>
+        <div style="font-size:12px; font-weight:700; color:#fff;">Global Cloudflare Access</div>
+        <div style="font-size:11px; color:#8b949e;" id="tunnelStatusText">Checking tunnel...</div>
+      </div>
+    </div>
+    <div style="display:flex; gap:6px;">
+      <button type="button" id="tunnelBtn" onclick="toggleTunnel()" style="padding:6px 12px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer; background:var(--accent); color:#000; border:none;">🌐 Go Global</button>
+      <button type="button" id="copyTunnelBtn" onclick="copyTunnelUrl()" style="display:none; padding:6px 10px; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer; background:#21262d; color:#fff; border:1px solid #30363d;">📋 Copy</button>
+    </div>
+  </div>
+
   <div class="tabs">
     <div class="tab-btn active" onclick="switchTab('chat')">💬 AI Chat</div>
     <div class="tab-btn" onclick="switchTab('media')">🎬 Media</div>
@@ -688,6 +826,63 @@ def index_page():
       alert('Error: ' + e.message);
     }
   }
+
+  // Cloudflare Tunnel Management
+  let currentTunnelUrl = null;
+  async function checkTunnelStatus() {
+    try {
+      const r = await fetch('/api/tunnel/status');
+      const d = await r.json();
+      const sub = document.getElementById('tunnelStatusText');
+      const btn = document.getElementById('tunnelBtn');
+      const copyBtn = document.getElementById('copyTunnelBtn');
+      if (d.running && d.url) {
+        currentTunnelUrl = d.url;
+        sub.innerHTML = `<a href="${d.url}" target="_blank" style="color:#00E5FF; font-weight:700; text-decoration:none;">${d.url}</a>`;
+        btn.innerText = 'Stop';
+        btn.style.background = '#ff4b4b';
+        btn.style.color = '#fff';
+        copyBtn.style.display = 'inline-block';
+      } else {
+        currentTunnelUrl = null;
+        sub.innerText = 'Offline (Accessible only on local Wi-Fi)';
+        btn.innerText = '🌐 Go Global';
+        btn.style.background = 'var(--accent)';
+        btn.style.color = '#000';
+        copyBtn.style.display = 'none';
+      }
+    } catch(e) {}
+  }
+
+  async function toggleTunnel() {
+    const btn = document.getElementById('tunnelBtn');
+    btn.disabled = true;
+    if (currentTunnelUrl) {
+      btn.innerText = 'Stopping...';
+      await fetch('/api/tunnel/stop', { method: 'POST' });
+    } else {
+      btn.innerText = 'Starting...';
+      const r = await fetch('/api/tunnel/start', { method: 'POST' });
+      const d = await r.json();
+      if (d.status === 'ok') {
+        showToast('🎉 Cloudflare Tunnel Live!', '#00C853');
+      } else {
+        alert(d.message || 'Tunnel error');
+      }
+    }
+    btn.disabled = false;
+    await checkTunnelStatus();
+  }
+
+  function copyTunnelUrl() {
+    if (currentTunnelUrl) {
+      navigator.clipboard.writeText(currentTunnelUrl);
+      showToast('📋 Public URL copied!', '#00C853');
+    }
+  }
+
+  checkTunnelStatus();
+  setInterval(checkTunnelStatus, 8000);
 </script>
 </body>
 </html>
@@ -696,9 +891,17 @@ def index_page():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     local_ip = get_local_ip()
-    print("=" * 60)
+    auto_tunnel = ("--tunnel" in sys.argv) or os.environ.get("AUTO_TUNNEL") == "1" or cfg.get("auto_tunnel", False)
+
+    print("=" * 65)
     print("🤖 DeskBuddy Smart Brain Server Running!")
     print(f"👉 Local Access:  http://localhost:{port}")
     print(f"👉 Wi-Fi Access:  http://{local_ip}:{port}")
-    print("=" * 60)
+    if auto_tunnel:
+        print("🌐 Starting Cloudflare Global Tunnel...")
+        t_thread = threading.Thread(target=start_tunnel_thread, args=(port,), daemon=True)
+        t_thread.start()
+    else:
+        print("💡 Tip: Click 'Go Global' in Web UI or run with --tunnel for worldwide access!")
+    print("=" * 65)
     app.run(host="0.0.0.0", port=port, debug=False)
