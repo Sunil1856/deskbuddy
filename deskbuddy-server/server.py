@@ -413,15 +413,32 @@ def ai_chat_route():
 
     emotion, reply = query_ai(msg)
     pushed = False
+    pages = 1
     if push_to_oled:
-        hex_data = render_text_to_oled_hex(reply, emotion=emotion, title="BUDDY AI")
-        pushed = send_photo_to_deskbuddy(hex_data, save_permanent=False)
+        target_ip = cfg.get("deskbuddy_ip", "10.91.8.125")
+        try:
+            r = requests.post(
+                f"http://{target_ip}/api/message",
+                data={"text": reply, "emotion": emotion, "title": "BUDDY AI"},
+                timeout=3.0
+            )
+            if r.status_code == 200:
+                pushed = True
+                pages = r.json().get("pages", 1)
+        except Exception as e:
+            print(f"[DESKBUDDY] /api/message error: {e}, fallback to /api/photo")
+            try:
+                hex_data = render_text_to_oled_hex(reply, emotion=emotion, title="BUDDY AI")
+                pushed = send_photo_to_deskbuddy(hex_data, save_permanent=False)
+            except Exception:
+                pass
 
     return jsonify({
         "status": "ok",
         "emotion": emotion,
         "reply": reply,
-        "pushed_to_oled": pushed
+        "pushed_to_oled": pushed,
+        "pages": pages
     })
 
 @app.route("/api/media/upload-photo", methods=["POST"])
@@ -773,7 +790,8 @@ def index_page():
       box.innerHTML += `<div class="msg msg-bot"><b>${d.emotion}:</b> ${d.reply}</div>`;
       box.scrollTop = box.scrollHeight;
       if (d.pushed_to_oled) {
-        showToast('Sent to DeskBuddy OLED!', '#00C853');
+        const pageTxt = (d.pages && d.pages > 1) ? ` (${d.pages} Pages • Tap DeskBuddy for next)` : '';
+        showToast('Sent to DeskBuddy OLED!' + pageTxt, '#00C853');
       }
     } catch(err) {
       btn.disabled = false; btn.innerText = '⚡ Ask & Show on DeskBuddy';

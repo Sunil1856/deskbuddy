@@ -19,6 +19,7 @@
 #include "app_games.h"
 #include "app_settings.h"
 #include "app_gallery.h"
+#include "app_message.h"
 
 // Core subsystems
 DisplayManager  g_display;
@@ -37,6 +38,7 @@ AppServer       appServer;
 AppGames        appGames;
 AppSettings     appSettings;
 AppGallery      appGallery;
+AppMessage      appMessage;
 
 // Current state
 AppID g_currentApp = AppID::FACE;
@@ -78,12 +80,21 @@ void setup() {
     appGames.begin(&g_display, &g_storage, &g_face);
     appGallery.begin(&g_display, &g_storage, &g_face);
     appSettings.begin(&g_display, &g_storage, &g_wifi, &g_face);
+    appMessage.begin(&g_display, &g_face);
     
     // Connect Photo Studio
     g_wifi.setGallery(&appGallery);
     g_wifi.setOnPhotoUploaded([]() {
         if (g_currentApp != AppID::GALLERY) {
             switchApp(AppID::GALLERY);
+        }
+    });
+
+    // Connect Message & AI Chat reader
+    g_wifi.setMessageApp(&appMessage);
+    g_wifi.setOnMessageReceived([]() {
+        if (g_currentApp != AppID::MESSAGE) {
+            switchApp(AppID::MESSAGE);
         }
     });
     
@@ -117,6 +128,7 @@ void switchApp(AppID newApp) {
         case AppID::GAMES: appGames.onExit(); break;
         case AppID::GALLERY: appGallery.onExit(); break;
         case AppID::SETTINGS: appSettings.onExit(); break;
+        case AppID::MESSAGE: appMessage.onExit(); break;
         default: break;
     }
     
@@ -133,6 +145,7 @@ void switchApp(AppID newApp) {
         case AppID::GAMES: appGames.onEnter(); break;
         case AppID::GALLERY: appGallery.onEnter(); break;
         case AppID::SETTINGS: appSettings.onEnter(); break;
+        case AppID::MESSAGE: appMessage.onEnter(); break;
         default: break;
     }
 }
@@ -172,6 +185,13 @@ void loop() {
         lastAutoCycle = millis();
     }
     
+    // Auto-exit Message reader after timeout: return to Pet Face
+    if (g_currentApp == AppID::MESSAGE && appMessage.shouldExit()) {
+        appMessage.clearExit();
+        switchApp(AppID::FACE);
+        lastAutoCycle = millis();
+    }
+    
     // Global User Inactivity Sleep Manager (Setting #8: Sleep in - 10 to 15 min default)
     uint32_t sleepTimeoutMs = g_storage.getSleepTimeout();
     if (sleepTimeoutMs > 0 && !g_face.isSleeping() && (millis() - g_lastUserActivityTime >= sleepTimeoutMs)) {
@@ -191,7 +211,7 @@ void loop() {
     if (cycleIntervalMs > 0 && millis() - lastAutoCycle > cycleIntervalMs) {
         lastAutoCycle = millis();
         // Do not auto-cycle away if menu is open, in games, in settings, or if clock is actively timing, or if Buddy is sleeping, or if actively watching a video in Gallery!
-        if (!g_menu.isActive() && g_currentApp != AppID::GAMES && g_currentApp != AppID::SETTINGS && !appClock.isBusy() && !g_face.isSleeping()) {
+        if (!g_menu.isActive() && g_currentApp != AppID::GAMES && g_currentApp != AppID::SETTINGS && g_currentApp != AppID::MESSAGE && !appClock.isBusy() && !g_face.isSleeping()) {
             if (g_currentApp == AppID::GALLERY && appGallery.isPlayingVideo()) {
                 // User is actively enjoying their custom video, don't interrupt!
                 return;
@@ -319,6 +339,17 @@ void loop() {
             }
             lastAutoCycle = millis();
         }
+        else if (g_currentApp == AppID::MESSAGE) {
+            if (ev == TouchEvent::LONG_PRESS || ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
+                // Long press opens Menu Carousel
+                g_display.captureScreen();
+                g_menu.show();
+            } else {
+                // Single tap: next page of AI message; Double tap is handled globally to return to Pet Face
+                appMessage.handleTouch(ev);
+            }
+            lastAutoCycle = millis();
+        }
         else if (g_currentApp == AppID::SERVER) {
             if (!appServer.isOnline() || ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
                 switchApp(AppID::FACE);
@@ -362,6 +393,7 @@ void loop() {
             case AppID::GAMES: appGames.update(); break;
             case AppID::GALLERY: appGallery.update(); break;
             case AppID::SETTINGS: appSettings.update(); break;
+            case AppID::MESSAGE: appMessage.update(); break;
             default: break;
         }
     }
@@ -379,6 +411,7 @@ void loop() {
             case AppID::GAMES: appGames.render(); break;
             case AppID::GALLERY: appGallery.render(); break;
             case AppID::SETTINGS: appSettings.render(); break;
+            case AppID::MESSAGE: appMessage.render(); break;
             default: break;
         }
     }

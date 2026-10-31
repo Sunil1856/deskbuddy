@@ -15,6 +15,7 @@ enum class AppID {
     GAMES = 5,
     GALLERY = 6,
     SETTINGS = 7,
+    MESSAGE = 8,
     NONE = 255
 };
 

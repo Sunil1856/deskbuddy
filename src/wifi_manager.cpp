@@ -9,6 +9,8 @@
 #include "config.h"
 #include "photo_studio_html.h"
 #include "app_gallery.h"
+#include "app_message.h"
+#include <ArduinoJson.h>
 
 static WebServer server(80);
 static DNSServer dnsServer;
@@ -19,6 +21,8 @@ static Storage* g_storage = nullptr;
 static bool g_shouldRestart = false;
 static AppGallery* g_gallery = nullptr;
 static PhotoUploadedCallback g_photoCb = nullptr;
+static AppMessage* g_msgApp = nullptr;
+static MessageReceivedCallback g_msgCb = nullptr;
 
 static uint8_t hexNibble(char c) {
     if (c >= '0' && c <= '9') return c - '0';
@@ -167,6 +171,8 @@ void WifiManager::_setupWebRoutes() {
 void WifiManager::_setupStationWebRoutes() {
     g_gallery = _gallery;
     g_photoCb = _onPhotoUploaded;
+    g_msgApp = _msgApp;
+    g_msgCb = _onMessageReceived;
     
     // Serve Photo Studio on root and /photo
     server.on("/", HTTP_GET, []() {
@@ -290,6 +296,47 @@ void WifiManager::_setupStationWebRoutes() {
                       ",\"frames\":" + String(g_gallery->getVideoFramesCount()) +
                       ",\"fps\":" + String(g_gallery->getVideoFps()) + "}";
         server.send(200, "application/json", json);
+    });
+
+    // Multi-page AI Message / Chat reader endpoint
+    server.on("/api/message", HTTP_POST, []() {
+        if (!g_msgApp) {
+            server.send(500, "application/json", "{\"status\":\"error\",\"msg\":\"Message app not ready\"}");
+            return;
+        }
+        
+        String text = "";
+        String emotion = "HAPPY";
+        String title = "BUDDY AI";
+        
+        if (server.hasArg("plain")) {
+            JsonDocument doc;
+            DeserializationError err = deserializeJson(doc, server.arg("plain"));
+            if (!err) {
+                if (!doc["text"].isNull()) text = doc["text"].as<String>();
+                if (!doc["emotion"].isNull()) emotion = doc["emotion"].as<String>();
+                if (!doc["title"].isNull()) title = doc["title"].as<String>();
+            }
+        }
+        
+        if (text.length() == 0 && server.hasArg("text")) {
+            text = server.arg("text");
+        }
+        if (server.hasArg("emotion")) emotion = server.arg("emotion");
+        if (server.hasArg("title")) title = server.arg("title");
+        
+        if (text.length() == 0) {
+            server.send(400, "application/json", "{\"status\":\"error\",\"msg\":\"Empty text\"}");
+            return;
+        }
+        
+        g_msgApp->setMessage(text, emotion, title);
+        if (g_msgCb) {
+            g_msgCb();
+        }
+        
+        String resp = "{\"status\":\"ok\",\"pages\":" + String(g_msgApp->getTotalPages()) + "}";
+        server.send(200, "application/json", resp);
     });
     
     server.on("/api/status", HTTP_GET, []() {

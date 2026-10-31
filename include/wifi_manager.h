@@ -15,7 +15,9 @@ enum class WifiState {
 };
 
 class AppGallery;
+class AppMessage;
 typedef void (*PhotoUploadedCallback)();
+typedef void (*MessageReceivedCallback)();
 
 class WifiManager {
 public:
@@ -38,12 +40,18 @@ public:
     // Photo Studio attachment
     void setGallery(AppGallery* gallery) { _gallery = gallery; }
     void setOnPhotoUploaded(PhotoUploadedCallback cb) { _onPhotoUploaded = cb; }
+
+    // Message attachment
+    void setMessageApp(AppMessage* msgApp) { _msgApp = msgApp; }
+    void setOnMessageReceived(MessageReceivedCallback cb) { _onMessageReceived = cb; }
     
 private:
     DisplayManager* _dm = nullptr;
     Storage* _storage = nullptr;
     AppGallery* _gallery = nullptr;
+    AppMessage* _msgApp = nullptr;
     PhotoUploadedCallback _onPhotoUploaded = nullptr;
+    MessageReceivedCallback _onMessageReceived = nullptr;
     
     WifiState _state = WifiState::IDLE;
     unsigned long _connectStartTime = 0;
