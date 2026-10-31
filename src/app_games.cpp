@@ -144,9 +144,10 @@ void AppGames::_renderMenu() {
     
     d.setTextSize(1);
     d.setTextColor(SSD1306_WHITE);
-    _dm->drawCenteredText("1-TAP GAMES", 2, 1);
+    _dm->drawCenteredText("-- GAMES --", 2, 1);
     d.drawLine(0, 12, SCREEN_W, 12, SSD1306_WHITE);
     
+    // Game name + emoji icon pairs
     const char* gameNames[] = {
         "DINO RUN",
         "FLAPPY BIRD",
@@ -155,9 +156,28 @@ void AppGames::_renderMenu() {
         "COIN TOSS",
         "MAGIC ORACLE"
     };
+    const char* name = gameNames[_menuIndex];
+    int nameLen = strlen(name);
     
+    // Use size 2 for short names (<= 9 chars), size 1 for longer names
+    if (nameLen <= 9) {
+        d.setTextSize(2);
+        int16_t x = (SCREEN_W - nameLen * 12) / 2;
+        if (x < 0) x = 0;
+        d.setCursor(x, 20);
+        d.print(name);
+    } else {
+        // Use size 1 with a bigger centered layout
+        d.setTextSize(1);
+        int16_t x = (SCREEN_W - nameLen * 6) / 2;
+        if (x < 0) x = 0;
+        d.setCursor(x, 25);
+        d.print(name);
+    }
+    
+    // Instruction hint
     d.setTextSize(1);
-    _dm->drawCenteredText(gameNames[_menuIndex], 30, 2);
+    _dm->drawCenteredText("Hold=Play  Tap=Next", 48, 1);
     
     // Centered Page Dots for 6 games
     int startX = SCREEN_W / 2 - ((int)GameID::COUNT * 9) / 2 + 2;

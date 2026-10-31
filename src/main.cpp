@@ -251,6 +251,13 @@ void loop() {
     if (ev != TouchEvent::NONE) {
         g_lastUserActivityTime = millis();
         
+        // Special case: MESSAGE app gets tap BEFORE global debounce so page-flip always works
+        if (g_currentApp == AppID::MESSAGE && ev == TouchEvent::TAP) {
+            appMessage.handleTouch(ev);
+            lastAutoCycle = millis();
+            return;
+        }
+        
         // Absorb trailing finger-release taps or holds from menu selection
         if (millis() - g_lastAppSwitchTime < 550) {
             return;

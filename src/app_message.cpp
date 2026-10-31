@@ -130,47 +130,59 @@ void AppMessage::render() {
     if (!_dm) return;
     Adafruit_SSD1306& d = _dm->display();
     
-    d.setTextSize(1);
     d.setTextColor(SSD1306_WHITE);
     
-    // 1. Header Bar: Title on left, [Page X/Y] on right
-    d.setCursor(0, 2);
+    // ── 1. Header ──────────────────────────────────────────────
+    // Title on left (bold look: print twice with 1px offset)
+    d.setTextSize(1);
+    d.setCursor(1, 1);
     d.print(_title);
+    d.setCursor(0, 1);
+    d.print(_title);  // double-draw = bold effect
     
+    // Page counter on right
     if (_totalPages > 1) {
-        String pageStr = "[" + String(_currentPage + 1) + "/" + String(_totalPages) + "]";
-        int pageX = 128 - (pageStr.length() * 6);
-        d.setCursor(pageX, 2);
+        String pageStr = String(_currentPage + 1) + "/" + String(_totalPages);
+        int px = 128 - (pageStr.length() * 6) - 1;
+        d.setCursor(px, 1);
         d.print(pageStr);
     } else {
-        d.setCursor(88, 2);
-        d.print("[" + _emotion.substring(0, 5) + "]");
+        // Single page: show emotion tag
+        String tag = "[" + _emotion.substring(0, 6) + "]";
+        int px = 128 - (tag.length() * 6) - 1;
+        d.setCursor(px, 1);
+        d.print(tag);
     }
     
-    // Divider line
-    d.drawLine(0, 12, 127, 12, SSD1306_WHITE);
+    // Solid divider line under header
+    d.drawLine(0, 11, 127, 11, SSD1306_WHITE);
+    d.drawLine(0, 12, 127, 12, SSD1306_WHITE); // double line = thicker
     
-    // 2. Body Text (4 lines per page)
+    // ── 2. Body Text ───────────────────────────────────────────
+    // 4 lines, each 10px tall (font size 1 = 8px + 2px gap)
     int startLine = _currentPage * LINES_PER_PAGE;
-    int y = 16;
+    int y = 15;
     
+    d.setTextSize(1);
     for (int i = 0; i < LINES_PER_PAGE; i++) {
         int lineIdx = startLine + i;
         if (lineIdx < (int)_lines.size()) {
-            d.setCursor(0, y);
+            d.setCursor(1, y);
             d.print(_lines[lineIdx]);
-            y += 10;
         }
+        y += 10;
     }
     
-    // 3. Footer Prompt
+    // ── 3. Footer ──────────────────────────────────────────────
     if (_totalPages > 1) {
-        d.drawLine(0, 55, 127, 55, SSD1306_WHITE);
-        d.setCursor(2, 57);
+        d.drawLine(0, 54, 127, 54, SSD1306_WHITE);
+        d.setTextSize(1);
         if (_currentPage + 1 < _totalPages) {
-            d.print("TAP: Next page >");
+            // Center "TAP > Next" hint
+            _dm->drawCenteredText("TAP > Next page", 56, 1);
         } else {
-            d.print("TAP: 1st page | 2x: Exit");
+            _dm->drawCenteredText("TAP>Start | 2x>Exit", 56, 1);
         }
     }
 }
+
