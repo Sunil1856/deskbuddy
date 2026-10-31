@@ -129,10 +129,15 @@ def start_tunnel_thread(local_port=8000):
 
     def reader():
         global tunnel_url
-        url_pattern = re.compile(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com")
+        # Exclude api.trycloudflare.com - that's just Cloudflare's API, not the tunnel URL
+        url_pattern = re.compile(r"https://(?!api\.)[a-zA-Z0-9-]+\.trycloudflare\.com")
         for line in iter(tunnel_process.stdout.readline, ''):
             if not line:
                 break
+            line_stripped = line.strip()
+            # Print all cloudflared output so URL is always visible in terminal
+            if line_stripped:
+                print(f"[cloudflared] {line_stripped}")
             m = url_pattern.search(line)
             if m and not tunnel_url:
                 tunnel_url = m.group(0)
