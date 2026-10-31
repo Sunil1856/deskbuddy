@@ -403,10 +403,16 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     <!-- Video Playback & Frame Scrubber -->
     <div class="control-group" id="vScrubberGroup" style="display:none;">
       <div class="control-header">
-        <span>Frame Scrubber</span>
+        <span>Frame Scrubber &amp; Selector</span>
         <span class="val-blue" id="vScrubberVal">Frame 1 of 0</span>
       </div>
       <input type="range" class="range-blue" id="vScrubberSlider" min="0" max="0" step="1" value="0">
+      <div class="zoom-btn-row" style="margin-top:6px;">
+        <button type="button" class="mini-btn" id="vDropFrameBtn" style="border-color:#ff4b4b; color:#ff6b6b;" title="Remove this exact frame from animation">🗑️ Drop</button>
+        <button type="button" class="mini-btn" id="vSetStartBtn" title="Set current frame as start (cut before)">✂️ Start</button>
+        <button type="button" class="mini-btn" id="vSetEndBtn" title="Set current frame as end (cut after)">✂️ End</button>
+        <button type="button" class="mini-btn" id="vResetFramesBtn" title="Restore all frames from original video">↩️ Reset</button>
+      </div>
     </div>
 
     <div style="display:flex; gap:8px; margin-bottom:12px;">
@@ -415,13 +421,30 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       <button type="button" class="action-btn" id="vInvertBtn">◐ Invert</button>
     </div>
 
+    <!-- Video Zoom & Scale Tool -->
+    <div class="control-group">
+      <div class="control-header">
+        <span>Zoom &amp; Fit Mode</span>
+        <span class="val-blue" id="vZoomVal">1.0x</span>
+      </div>
+      <input type="range" class="range-blue" id="vZoomSlider" min="0.3" max="3.0" step="0.05" value="1.0">
+      <div class="zoom-btn-row">
+        <button type="button" class="mini-btn" id="vBtnFit">🔍 Fit</button>
+        <button type="button" class="mini-btn" id="vBtnFill">⛶ Fill</button>
+        <button type="button" class="mini-btn" id="vBtnStretch">↔️ Stretch</button>
+        <button type="button" class="mini-btn" id="vBtnZoomOut">➖ Out</button>
+        <button type="button" class="mini-btn" id="vBtnZoomIn">➕ In</button>
+        <button type="button" class="mini-btn" id="vBtnReset">↺ Center</button>
+      </div>
+    </div>
+
     <!-- Video Trim Tool -->
     <div class="control-group">
       <div class="control-header">
         <span>Trim: Start Time in Video</span>
         <span class="val-blue" id="vStartVal">0.0s</span>
       </div>
-      <input type="range" class="range-blue" id="vStartSlider" min="0" max="30" step="0.2" value="0">
+      <input type="range" class="range-blue" id="vStartSlider" min="0" max="60" step="0.2" value="0">
     </div>
 
     <div class="row-controls">
@@ -430,27 +453,34 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
         <select id="vMaxSecSelect">
           <option value="2">2 Seconds</option>
           <option value="4">4 Seconds</option>
-          <option value="6" selected>6 Seconds</option>
-          <option value="8">8 Seconds (Long)</option>
+          <option value="6">6 Seconds</option>
+          <option value="8" selected>8 Seconds</option>
+          <option value="10">10 Seconds</option>
+          <option value="15">15 Seconds</option>
+          <option value="20">20 Seconds</option>
+          <option value="30">30 Seconds (Max)</option>
         </select>
       </div>
       <div class="control-group">
         <div class="control-header"><span>Playback FPS</span></div>
         <select id="vFpsSelect">
-          <option value="6">6 FPS (Ultra Light)</option>
-          <option value="8" selected>8 FPS (Smooth &amp; Light)</option>
+          <option value="4">4 FPS (Eco - Best for 20-30s)</option>
+          <option value="6">6 FPS (Light)</option>
+          <option value="8" selected>8 FPS (Smooth &amp; Balanced)</option>
           <option value="10">10 FPS (Fluid)</option>
-          <option value="12">12 FPS (Super Fast)</option>
+          <option value="12">12 FPS (Fast)</option>
+          <option value="15">15 FPS (Max Fluidity)</option>
         </select>
       </div>
     </div>
 
     <div class="row-controls">
       <div class="control-group">
-        <div class="control-header"><span>Scale / Crop</span></div>
+        <div class="control-header"><span>Scale / Crop Mode</span></div>
         <select id="vFitMode">
           <option value="cover" selected>Fill (Cover 128x64)</option>
           <option value="contain">Fit (Full Video / Bars)</option>
+          <option value="stretch">Stretch (Exact 128x64)</option>
         </select>
       </div>
       <div class="control-group">
@@ -468,14 +498,14 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
           <span>Pan X (Left/Right)</span>
           <span class="val-blue" id="vPanXVal">0</span>
         </div>
-        <input type="range" class="range-blue" id="vPanXSlider" min="-40" max="40" step="1" value="0">
+        <input type="range" class="range-blue" id="vPanXSlider" min="-80" max="80" step="1" value="0">
       </div>
       <div class="control-group">
         <div class="control-header">
           <span>Pan Y (Up/Down)</span>
           <span class="val-blue" id="vPanYVal">0</span>
         </div>
-        <input type="range" class="range-blue" id="vPanYSlider" min="-30" max="30" step="1" value="0">
+        <input type="range" class="range-blue" id="vPanYSlider" min="-60" max="60" step="1" value="0">
       </div>
     </div>
 
@@ -626,8 +656,8 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       panY = initPanY + dy;
       renderPhoto();
     } else {
-      let nx = Math.max(-40, Math.min(40, Math.round(initPanX + dx)));
-      let ny = Math.max(-30, Math.min(30, Math.round(initPanY + dy)));
+      let nx = Math.max(-80, Math.min(80, Math.round(initPanX + dx)));
+      let ny = Math.max(-60, Math.min(60, Math.round(initPanY + dy)));
       vPanXSlider.value = nx;
       vPanYSlider.value = ny;
       vPanXVal.innerText = nx;
@@ -639,18 +669,29 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   bezel.addEventListener('pointerup', () => { isDragging = false; });
   bezel.addEventListener('pointercancel', () => { isDragging = false; });
 
-  // Mouse wheel zoom for photo
+  // Mouse wheel zoom for photo and video
   bezel.addEventListener('wheel', (e) => {
-    if (currentMode !== 'photo' || !loadedImg) return;
     e.preventDefault();
-    if (e.deltaY < 0) {
-      zoom = Math.min(4.0, zoom + 0.1);
-    } else {
-      zoom = Math.max(0.1, zoom - 0.1);
+    if (currentMode === 'photo' && loadedImg) {
+      if (e.deltaY < 0) {
+        zoom = Math.min(4.0, zoom + 0.1);
+      } else {
+        zoom = Math.max(0.1, zoom - 0.1);
+      }
+      zoomSlider.value = zoom.toFixed(2);
+      zoomVal.innerText = zoom.toFixed(1) + 'x';
+      renderPhoto();
+    } else if (currentMode === 'video' && rawVideoFile) {
+      let vz = parseFloat(vZoomSlider.value) || 1.0;
+      if (e.deltaY < 0) {
+        vz = Math.min(3.0, vz + 0.1);
+      } else {
+        vz = Math.max(0.3, vz - 0.1);
+      }
+      vZoomSlider.value = vz.toFixed(2);
+      vZoomVal.innerText = vz.toFixed(2) + 'x';
+      debounceProcessVideo();
     }
-    zoomSlider.value = zoom.toFixed(2);
-    zoomVal.innerText = zoom.toFixed(1) + 'x';
-    renderPhoto();
   }, { passive: false });
 
   // Touch pinch-to-zoom for mobile
@@ -894,6 +935,8 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   const vPanXVal = document.getElementById('vPanXVal');
   const vPanYSlider = document.getElementById('vPanYSlider');
   const vPanYVal = document.getElementById('vPanYVal');
+  const vZoomSlider = document.getElementById('vZoomSlider');
+  const vZoomVal = document.getElementById('vZoomVal');
   const vThresholdSlider = document.getElementById('vThresholdSlider');
   const vThresholdVal = document.getElementById('vThresholdVal');
   const vInvertBtn = document.getElementById('vInvertBtn');
@@ -905,6 +948,11 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   const vLiveSyncCheck = document.getElementById('vLiveSyncCheck');
   const uploadVideoBtn = document.getElementById('uploadVideoBtn');
   const deleteVideoBtn = document.getElementById('deleteVideoBtn');
+
+  const vDropFrameBtn = document.getElementById('vDropFrameBtn');
+  const vSetStartBtn = document.getElementById('vSetStartBtn');
+  const vSetEndBtn = document.getElementById('vSetEndBtn');
+  const vResetFramesBtn = document.getElementById('vResetFramesBtn');
 
   let rawVideoFile = null;
   let videoFrames = []; // Array of 1024-byte hex strings
@@ -936,6 +984,106 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
   vPanYSlider.oninput = () => { vPanYVal.innerText = vPanYSlider.value; debounceProcessVideo(); };
   vThresholdSlider.oninput = () => { vThresholdVal.innerText = vThresholdSlider.value; debounceProcessVideo(); };
   vInvertBtn.onclick = () => { isVideoInverted = !isVideoInverted; debounceProcessVideo(); };
+
+  vZoomSlider.oninput = () => {
+    vZoomVal.innerText = parseFloat(vZoomSlider.value).toFixed(2) + 'x';
+    debounceProcessVideo();
+  };
+
+  document.getElementById('vBtnFit').onclick = () => {
+    vFitMode.value = 'contain'; vZoomSlider.value = 1.0; vZoomVal.innerText = '1.0x (Fit)';
+    vPanXSlider.value = 0; vPanXVal.innerText = '0';
+    vPanYSlider.value = 0; vPanYVal.innerText = '0';
+    debounceProcessVideo();
+  };
+  document.getElementById('vBtnFill').onclick = () => {
+    vFitMode.value = 'cover'; vZoomSlider.value = 1.0; vZoomVal.innerText = '1.0x (Fill)';
+    vPanXSlider.value = 0; vPanXVal.innerText = '0';
+    vPanYSlider.value = 0; vPanYVal.innerText = '0';
+    debounceProcessVideo();
+  };
+  document.getElementById('vBtnStretch').onclick = () => {
+    vFitMode.value = 'stretch'; vZoomSlider.value = 1.0; vZoomVal.innerText = '1.0x (Stretch)';
+    vPanXSlider.value = 0; vPanXVal.innerText = '0';
+    vPanYSlider.value = 0; vPanYVal.innerText = '0';
+    debounceProcessVideo();
+  };
+  document.getElementById('vBtnZoomIn').onclick = () => {
+    let z = Math.min(3.0, parseFloat(vZoomSlider.value) + 0.2);
+    vZoomSlider.value = z.toFixed(2); vZoomVal.innerText = z.toFixed(2) + 'x';
+    debounceProcessVideo();
+  };
+  document.getElementById('vBtnZoomOut').onclick = () => {
+    let z = Math.max(0.3, parseFloat(vZoomSlider.value) - 0.2);
+    vZoomSlider.value = z.toFixed(2); vZoomVal.innerText = z.toFixed(2) + 'x';
+    debounceProcessVideo();
+  };
+  document.getElementById('vBtnReset').onclick = () => {
+    vPanXSlider.value = 0; vPanXVal.innerText = '0';
+    vPanYSlider.value = 0; vPanYVal.innerText = '0';
+    debounceProcessVideo();
+  };
+
+  function updateVideoStats() {
+    const fps = parseInt(vFpsSelect.value);
+    document.getElementById('vStatsPill').style.display = 'block';
+    document.getElementById('vFramesCount').innerText = videoFrames.length;
+    document.getElementById('vFpsVal').innerText = fps;
+    document.getElementById('vDurationVal').innerText = (videoFrames.length / fps).toFixed(1) + 's';
+    document.getElementById('vSizeVal').innerText = ((videoFrames.length * 1024) / 1024).toFixed(1);
+    uploadVideoBtn.disabled = (videoFrames.length === 0);
+  }
+
+  // Frame selector & editor (Drop frame / Cut start / Cut end / Reset)
+  vDropFrameBtn.onclick = () => {
+    if (videoFrames.length <= 1) {
+      showToast('Need at least 1 frame', '#d32f2f');
+      return;
+    }
+    const droppedIdx = videoPreviewIndex;
+    videoFrames.splice(droppedIdx, 1);
+    if (videoPreviewIndex >= videoFrames.length) videoPreviewIndex = videoFrames.length - 1;
+    vScrubberSlider.max = Math.max(0, videoFrames.length - 1);
+    vScrubberSlider.value = videoPreviewIndex;
+    vScrubberVal.innerText = `Frame ${videoPreviewIndex + 1} of ${videoFrames.length}`;
+    updateVideoStats();
+    drawHexToCanvas(videoFrames[videoPreviewIndex]);
+    if (vLiveSyncCheck.checked) syncVideoFrameToOled(videoFrames[videoPreviewIndex]);
+    showToast(`🗑️ Dropped Frame ${droppedIdx + 1}! (${videoFrames.length} left)`, '#e65100');
+  };
+
+  vSetStartBtn.onclick = () => {
+    if (videoFrames.length <= 1 || videoPreviewIndex === 0) return;
+    const removed = videoPreviewIndex;
+    videoFrames = videoFrames.slice(videoPreviewIndex);
+    videoPreviewIndex = 0;
+    vScrubberSlider.max = Math.max(0, videoFrames.length - 1);
+    vScrubberSlider.value = 0;
+    vScrubberVal.innerText = `Frame 1 of ${videoFrames.length}`;
+    updateVideoStats();
+    drawHexToCanvas(videoFrames[0]);
+    if (vLiveSyncCheck.checked) syncVideoFrameToOled(videoFrames[0]);
+    showToast(`✂️ Cut ${removed} leading frames!`, '#00C853');
+  };
+
+  vSetEndBtn.onclick = () => {
+    if (videoFrames.length <= 1 || videoPreviewIndex >= videoFrames.length - 1) return;
+    const cutCount = videoFrames.length - (videoPreviewIndex + 1);
+    videoFrames = videoFrames.slice(0, videoPreviewIndex + 1);
+    vScrubberSlider.max = Math.max(0, videoFrames.length - 1);
+    vScrubberSlider.value = videoPreviewIndex;
+    vScrubberVal.innerText = `Frame ${videoPreviewIndex + 1} of ${videoFrames.length}`;
+    updateVideoStats();
+    drawHexToCanvas(videoFrames[videoPreviewIndex]);
+    if (vLiveSyncCheck.checked) syncVideoFrameToOled(videoFrames[videoPreviewIndex]);
+    showToast(`✂️ Cut ${cutCount} trailing frames!`, '#00C853');
+  };
+
+  vResetFramesBtn.onclick = () => {
+    if (!rawVideoFile) return;
+    processVideo();
+    showToast('↩️ Restored all frames from video!', '#1f6feb');
+  };
 
   function seekVideoPromise(video, targetTime) {
     return new Promise(resolve => {
@@ -974,6 +1122,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
     const ditherStyle = vDitherMode.value;
     const panX = parseInt(vPanXSlider.value);
     const panY = parseInt(vPanYSlider.value);
+    const vZoom = parseFloat(vZoomSlider.value) || 1.0;
 
     try {
       const v = document.createElement('video');
@@ -996,7 +1145,8 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
 
       const availableSec = Math.max(0.5, (v.duration ? v.duration - startTime : maxSec));
       const dur = Math.min(availableSec, maxSec);
-      const totalFrames = Math.min(Math.max(1, Math.floor(dur * fps)), 96);
+      // Allow up to 160 frames (~160KB RAM, safely handles up to 30s at 5 FPS)
+      const totalFrames = Math.min(Math.max(1, Math.floor(dur * fps)), 160);
       const frameInterval = 1.0 / fps;
 
       const off = document.createElement('canvas');
@@ -1016,14 +1166,19 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
         offCtx.fillStyle = isVideoInverted ? '#fff' : '#000';
         offCtx.fillRect(0, 0, 128, 64);
         
-        let r = 1.0;
-        if (fitMode === 'cover') {
-          r = Math.max(128 / (v.videoWidth || 128), 64 / (v.videoHeight || 64));
-        } else {
-          r = Math.min(128 / (v.videoWidth || 128), 64 / (v.videoHeight || 64));
+        let w = 128, h = 64;
+        if (fitMode === 'stretch') {
+          w = 128 * vZoom;
+          h = 64 * vZoom;
+        } else if (fitMode === 'cover') {
+          let r = Math.max(128 / (v.videoWidth || 128), 64 / (v.videoHeight || 64)) * vZoom;
+          w = (v.videoWidth || 128) * r;
+          h = (v.videoHeight || 64) * r;
+        } else { // contain / fit
+          let r = Math.min(128 / (v.videoWidth || 128), 64 / (v.videoHeight || 64)) * vZoom;
+          w = (v.videoWidth || 128) * r;
+          h = (v.videoHeight || 64) * r;
         }
-        const w = (v.videoWidth || 128) * r;
-        const h = (v.videoHeight || 64) * r;
         const shiftX = (128 - w) / 2 + panX;
         const shiftY = (64 - h) / 2 + panY;
         offCtx.drawImage(v, shiftX, shiftY, w, h);
@@ -1038,12 +1193,7 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       progressBox.style.display = 'none';
 
       // Update stats
-      document.getElementById('vStatsPill').style.display = 'block';
-      document.getElementById('vFramesCount').innerText = videoFrames.length;
-      document.getElementById('vFpsVal').innerText = fps;
-      document.getElementById('vDurationVal').innerText = (videoFrames.length / fps).toFixed(1) + 's';
-      document.getElementById('vSizeVal').innerText = ((videoFrames.length * 1024) / 1024).toFixed(1);
-      uploadVideoBtn.disabled = false;
+      updateVideoStats();
 
       // Setup Frame Scrubber
       vScrubberGroup.style.display = 'block';
@@ -1053,6 +1203,12 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
 
       videoPreviewIndex = 0;
       startVideoPreview();
+
+      // If Realtime OLED Sync is enabled, immediately push frame 0 to OLED
+      if (vLiveSyncCheck.checked && videoFrames.length > 0) {
+        syncVideoFrameToOled(videoFrames[0]);
+      }
+
       showToast('✅ Animation Ready! Live preview playing.', '#00C853');
     } catch(err) {
       progressBox.style.display = 'none';
@@ -1169,6 +1325,13 @@ static const char PHOTO_STUDIO_HTML[] PROGMEM = R"rawliteral(
       body: 'data=' + hex + '&save=0'
     }).catch(() => {});
   }
+
+  vLiveSyncCheck.onchange = () => {
+    if (vLiveSyncCheck.checked && videoFrames.length > 0) {
+      syncVideoFrameToOled(videoFrames[videoPreviewIndex]);
+      showToast('⚡ Syncing video frame to DeskBuddy OLED!', '#00E5FF');
+    }
+  };
 
   function drawHexToCanvas(hex) {
     if (!hex || hex.length < 2048) return;

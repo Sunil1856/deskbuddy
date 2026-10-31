@@ -25,6 +25,11 @@ public:
     void clearPhoto();
     bool hasPhoto() const { return _hasPhoto; }
 
+    // Real-time live sync / preview (does not overwrite saved photo)
+    void setLivePreview(const uint8_t* bitmap1024);
+    void clearLivePreview();
+    bool isLivePreview() const { return _isLivePreview; }
+
     // Video & Animation management
     bool setVideoStart(uint8_t totalFrames, uint8_t fps);
     bool setVideoFrame(uint8_t index, const uint8_t* bitmap1024);
@@ -49,6 +54,12 @@ private:
     bool _isPhotoInverted = false;
     String _localIP = "";
     unsigned long _enteredTime = 0;
+
+    // Real-time live preview buffer (isolated from saved photo)
+    uint8_t _livePreview[1024];
+    bool _isLivePreview = false;
+    unsigned long _livePreviewExpiry = 0;
+    void _renderLivePreview();
 
     // Video playback engine
     uint8_t* _videoFrames = nullptr; // Dynamically allocated in RAM

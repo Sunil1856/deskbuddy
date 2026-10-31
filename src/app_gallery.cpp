@@ -7,6 +7,9 @@
 
 AppGallery::AppGallery() {
     memset(_photo, 0, sizeof(_photo));
+    memset(_livePreview, 0, sizeof(_livePreview));
+    _isLivePreview = false;
+    _livePreviewExpiry = 0;
     _videoFrames = nullptr;
     _videoTotalFrames = 0;
     _videoFps = 10;
@@ -63,6 +66,7 @@ void AppGallery::onEnter() {
 void AppGallery::onExit() {
     _isPlayingVideo = false;
     _isAutoCycle = false;
+    _isLivePreview = false;
 }
 
 void AppGallery::update() {
@@ -112,6 +116,7 @@ void AppGallery::setPhoto(const uint8_t* bitmap1024, bool saveToStorage) {
     memcpy(_photo, bitmap1024, sizeof(_photo));
     _hasPhoto = true;
     _isPlayingVideo = false; // Show newly uploaded photo
+    _isLivePreview = false;  // Clear live preview mode on permanent save
     
     if (saveToStorage && _storage) {
         _storage->saveCustomPhoto(bitmap1024);
@@ -119,6 +124,18 @@ void AppGallery::setPhoto(const uint8_t* bitmap1024, bool saveToStorage) {
             _face->setExpression(Expression::PARTY, 400);
         }
     }
+}
+
+void AppGallery::setLivePreview(const uint8_t* bitmap1024) {
+    if (!bitmap1024) return;
+    memcpy(_livePreview, bitmap1024, sizeof(_livePreview));
+    _isLivePreview = true;
+    _livePreviewExpiry = millis() + 15000; // Stay active for 15s or until next frame
+    _isPlayingVideo = false;
+}
+
+void AppGallery::clearLivePreview() {
+    _isLivePreview = false;
 }
 
 void AppGallery::clearPhoto() {
@@ -137,7 +154,7 @@ void AppGallery::clearPhoto() {
 }
 
 bool AppGallery::setVideoStart(uint8_t totalFrames, uint8_t fps) {
-    if (totalFrames == 0 || totalFrames > 100) return false;
+    if (totalFrames == 0 || totalFrames > 180) return false;
     
     if (_videoFrames) {
         free(_videoFrames);
@@ -228,7 +245,7 @@ void AppGallery::_loadVideoFromSpiffs() {
     
     uint8_t totalFrames = hdr[4];
     uint8_t fps = hdr[5];
-    if (totalFrames == 0 || totalFrames > 100) { f.close(); return; }
+    if (totalFrames == 0 || totalFrames > 180) { f.close(); return; }
     
     size_t dataLen = (size_t)totalFrames * 1024;
     if (f.size() < 8 + dataLen) { f.close(); return; }
@@ -255,6 +272,16 @@ void AppGallery::_loadVideoFromSpiffs() {
 void AppGallery::render() {
     if (!_dm) return;
     
+    // Check if real-time live preview is active
+    if (_isLivePreview) {
+        if (millis() > _livePreviewExpiry) {
+            _isLivePreview = false;
+        } else {
+            _renderLivePreview();
+            return;
+        }
+    }
+    
     if (!_hasPhoto && !_hasVideo) {
         _renderEmpty();
     } else if (_isPlayingVideo && _hasVideo && _videoFrames) {
@@ -262,6 +289,19 @@ void AppGallery::render() {
     } else {
         _renderPhoto();
     }
+}
+
+void AppGallery::_renderLivePreview() {
+    Adafruit_SSD1306& d = _dm->display();
+    d.drawBitmap(0, 0, _livePreview, SCREEN_W, SCREEN_H, SSD1306_WHITE, SSD1306_BLACK);
+    
+    // Small subtle live sync indicator badge at top right
+    d.fillRect(98, 2, 28, 9, SSD1306_BLACK);
+    d.drawRoundRect(98, 2, 28, 9, 2, SSD1306_WHITE);
+    d.setTextSize(1);
+    d.setTextColor(SSD1306_WHITE);
+    d.setCursor(101, 3);
+    d.print("LIVE");
 }
 
 void AppGallery::_renderEmpty() {

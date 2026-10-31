@@ -204,11 +204,22 @@ void WifiManager::_setupStationWebRoutes() {
             save = (server.arg("save") == "1");
         }
         
-        if (g_gallery) {
-            g_gallery->setPhoto(buffer, save);
-        }
-        if (save && g_photoCb) {
-            g_photoCb();
+        if (save) {
+            // Permanent save to NVS storage
+            if (g_gallery) {
+                g_gallery->setPhoto(buffer, true);
+            }
+            if (g_photoCb) {
+                g_photoCb();
+            }
+        } else {
+            // Real-time live sync / preview stream: isolated from saved photo
+            if (g_gallery) {
+                g_gallery->setLivePreview(buffer);
+            }
+            if (g_photoCb) {
+                g_photoCb(); // Instantly switch display to Gallery to watch live stream!
+            }
         }
         
         server.send(200, "application/json", "{\"status\":\"ok\"}");
@@ -229,7 +240,7 @@ void WifiManager::_setupStationWebRoutes() {
         }
         uint8_t totalFrames = server.hasArg("frames") ? (uint8_t)server.arg("frames").toInt() : 30;
         uint8_t fps = server.hasArg("fps") ? (uint8_t)server.arg("fps").toInt() : 10;
-        if (totalFrames == 0 || totalFrames > 100) totalFrames = 30;
+        if (totalFrames == 0 || totalFrames > 180) totalFrames = 30;
         if (fps == 0 || fps > 30) fps = 10;
         
         bool ok = g_gallery->setVideoStart(totalFrames, fps);
