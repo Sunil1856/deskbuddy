@@ -20,6 +20,8 @@
 #include "app_settings.h"
 #include "app_gallery.h"
 #include "app_message.h"
+#include "audio_i2s.h"
+#include "app_voice.h"
 
 // Core subsystems
 DisplayManager  g_display;
@@ -29,6 +31,7 @@ FaceRenderer    g_face;
 MenuSystem      g_menu;
 WifiManager     g_wifi;
 TimeService     g_time;
+AudioI2S        g_audioI2S;
 
 // Apps
 AppClock        appClock;
@@ -39,6 +42,7 @@ AppGames        appGames;
 AppSettings     appSettings;
 AppGallery      appGallery;
 AppMessage      appMessage;
+AppVoice        appVoice;
 
 // Current state
 AppID g_currentApp = AppID::FACE;
@@ -81,6 +85,10 @@ void setup() {
     appGallery.begin(&g_display, &g_storage, &g_face);
     appSettings.begin(&g_display, &g_storage, &g_wifi, &g_face);
     appMessage.begin(&g_display, &g_face);
+    
+    // Init Audio Driver & Voice Assistant
+    g_audioI2S.begin();
+    appVoice.begin(&g_display, &g_storage, &g_face, &g_audioI2S);
     
     // Connect Photo Studio
     g_wifi.setGallery(&appGallery);
@@ -129,6 +137,7 @@ void switchApp(AppID newApp) {
         case AppID::GALLERY: appGallery.onExit(); break;
         case AppID::SETTINGS: appSettings.onExit(); break;
         case AppID::MESSAGE: appMessage.onExit(); break;
+        case AppID::VOICE: appVoice.onExit(); break;
         default: break;
     }
     
@@ -146,6 +155,7 @@ void switchApp(AppID newApp) {
         case AppID::GALLERY: appGallery.onEnter(); break;
         case AppID::SETTINGS: appSettings.onEnter(); break;
         case AppID::MESSAGE: appMessage.onEnter(); break;
+        case AppID::VOICE: appVoice.onEnter(); break;
         default: break;
     }
 }
@@ -211,7 +221,7 @@ void loop() {
     if (cycleIntervalMs > 0 && millis() - lastAutoCycle > cycleIntervalMs) {
         lastAutoCycle = millis();
         // Do not auto-cycle away if menu is open, in games, in settings, or if clock is actively timing, or if Buddy is sleeping, or if actively watching a video in Gallery!
-        if (!g_menu.isActive() && g_currentApp != AppID::GAMES && g_currentApp != AppID::SETTINGS && g_currentApp != AppID::MESSAGE && !appClock.isBusy() && !g_face.isSleeping()) {
+        if (!g_menu.isActive() && g_currentApp != AppID::GAMES && g_currentApp != AppID::SETTINGS && g_currentApp != AppID::MESSAGE && g_currentApp != AppID::VOICE && !appClock.isBusy() && !g_face.isSleeping()) {
             if (g_currentApp == AppID::GALLERY && appGallery.isPlayingVideo()) {
                 // User is actively enjoying their custom video, don't interrupt!
                 return;
@@ -368,6 +378,15 @@ void loop() {
             }
             lastAutoCycle = millis();
         }
+        else if (g_currentApp == AppID::VOICE) {
+            if (ev == TouchEvent::LONG_PRESS || ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
+                g_display.captureScreen();
+                g_menu.show();
+            } else {
+                appVoice.handleTouch(ev);
+            }
+            lastAutoCycle = millis();
+        }
         else {
             // Route all touches directly to Clock, Weather, World Info
             switch (g_currentApp) {
@@ -401,6 +420,7 @@ void loop() {
             case AppID::GALLERY: appGallery.update(); break;
             case AppID::SETTINGS: appSettings.update(); break;
             case AppID::MESSAGE: appMessage.update(); break;
+            case AppID::VOICE: appVoice.update(); break;
             default: break;
         }
     }
@@ -419,6 +439,7 @@ void loop() {
             case AppID::GALLERY: appGallery.render(); break;
             case AppID::SETTINGS: appSettings.render(); break;
             case AppID::MESSAGE: appMessage.render(); break;
+            case AppID::VOICE: appVoice.render(); break;
             default: break;
         }
     }

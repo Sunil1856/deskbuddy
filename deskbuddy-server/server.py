@@ -14,13 +14,17 @@ import tempfile
 import subprocess
 import re
 import threading
+import base64
+import urllib.parse
 from pathlib import Path
 
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, send_from_directory
 import requests
 from PIL import Image, ImageDraw, ImageOps
 
 CONFIG_FILE = Path(__file__).parent / "config.json"
+AUDIO_DIR = Path(__file__).parent / "static" / "audio"
+AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 DEFAULT_CONFIG = {
     "deskbuddy_ip": "10.91.8.125",
@@ -372,7 +376,7 @@ def config_route():
     global cfg
     if request.method == "POST":
         data = request.get_json(silent=True) or {}
-        for k in ["deskbuddy_ip", "gemini_api_key", "default_fps", "default_dither"]:
+        for k in ["deskbuddy_ip", "gemini_api_key", "default_fps", "default_dither", "voice"]:
             if k in data:
                 cfg[k] = data[k]
         save_config(cfg)
@@ -445,6 +449,177 @@ def ai_chat_route():
         "pushed_to_oled": pushed,
         "pages": pages
     })
+
+# ==============================================================================
+# Voice Assistant Engine (STT, Multimodal Audio, Neural TTS)
+# ==============================================================================
+def transcribe_audio_whisper_groq(audio_bytes: bytes, api_key: str) -> str:
+    """Fast speech transcription via Groq Whisper (< 250ms latency)"""
+    try:
+        url = "https://api.groq.com/openai/v1/audio/transcriptions"
+        headers = {"Authorization": f"Bearer {api_key}"}
+        files = {"file": ("audio.wav", audio_bytes, "audio/wav")}
+        data = {"model": "whisper-large-v3-turbo"}
+        r = requests.post(url, headers=headers, files=files, data=data, timeout=8.0)
+        if r.status_code == 200:
+            return r.json().get("text", "").strip()
+        print(f"[VOICE] Groq Whisper error {r.status_code}: {r.text[:80]}")
+    except Exception as e:
+        print(f"[VOICE] Groq Whisper exception: {e}")
+    return ""
+
+def ask_gemini_voice(audio_bytes: bytes, api_key: str) -> tuple[str, str, str]:
+    """Single-shot multimodal Gemini Audio: listens and answers in Hinglish/English"""
+    try:
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        prompt = (
+            f"{SYSTEM_PROMPT}\n\n"
+            "Instructions:\n"
+            "1. First transcribe what user said: write 'USER: <transcription>'\n"
+            "2. Then write your punchy response prefixed with ONE emotion tag, e.g.: [HAPPY] Hello there!\n"
+            "Keep response under 2 short sentences suitable for small OLED screen."
+        )
+        payload = {
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [
+                        {"text": prompt},
+                        {"inlineData": {"mimeType": "audio/wav", "data": audio_b64}}
+                    ]
+                }
+            ],
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 100}
+        }
+        r = requests.post(url, json=payload, timeout=10.0)
+        if r.status_code == 200:
+            res = r.json()
+            raw = res["candidates"][0]["content"]["parts"][0]["text"].strip()
+            user_text = ""
+            emotion = "HAPPY"
+            reply = raw
+            for line in raw.split("\n"):
+                line_s = line.strip()
+                if line_s.upper().startswith("USER:"):
+                    user_text = line_s[5:].strip()
+                elif line_s.startswith("[") and "]" in line_s:
+                    end_idx = line_s.find("]")
+                    emotion = line_s[1:end_idx].strip().upper()
+                    reply = line_s[end_idx+1:].strip()
+            return user_text, emotion, reply
+        print(f"[VOICE] Gemini audio error {r.status_code}: {r.text[:80]}")
+    except Exception as e:
+        print(f"[VOICE] Gemini audio exception: {e}")
+    return "", "ANNOYED", "Could not process audio"
+
+def generate_tts_wav(text: str, voice: str = "hi-IN-SwaraNeural") -> str:
+    """Synthesizes text to 16kHz 16-bit Mono WAV for ESP32 MAX98357A speaker"""
+    clean_text = re.sub(r"\[.*?\]", "", text).strip()
+    if not clean_text:
+        clean_text = "Hello!"
+
+    out_filename = f"reply_{int(time.time()*1000)}.wav"
+    out_path = AUDIO_DIR / out_filename
+    temp_mp3 = AUDIO_DIR / f"temp_{int(time.time()*1000)}.mp3"
+
+    tts_success = False
+
+    # 1. Try high quality Microsoft Edge Neural TTS
+    if shutil.which("edge-tts"):
+        try:
+            cmd = ["edge-tts", "--voice", voice, "--text", clean_text, "--write-media", str(temp_mp3)]
+            res = subprocess.run(cmd, timeout=8, capture_output=True)
+            if res.returncode == 0 and temp_mp3.exists() and temp_mp3.stat().st_size > 500:
+                tts_success = True
+        except Exception as e:
+            print(f"[TTS] edge-tts error: {e}")
+
+    # 2. Fallback to keyless Google Translate TTS
+    if not tts_success:
+        try:
+            tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&q={urllib.parse.quote(clean_text[:120])}&tl=hi&client=tw-ob"
+            r = requests.get(tts_url, headers={"User-Agent": "Mozilla/5.0"}, timeout=6.0)
+            if r.status_code == 200 and len(r.content) > 500:
+                with open(temp_mp3, "wb") as f:
+                    f.write(r.content)
+                tts_success = True
+        except Exception as e:
+            print(f"[TTS] Google TTS error: {e}")
+
+    # 3. Convert MP3 to 16kHz 16-bit Mono WAV using ffmpeg
+    if tts_success and temp_mp3.exists():
+        if shutil.which("ffmpeg"):
+            try:
+                cmd = [
+                    "ffmpeg", "-y", "-i", str(temp_mp3),
+                    "-ac", "1", "-ar", "16000", "-acodec", "pcm_s16le",
+                    str(out_path)
+                ]
+                subprocess.run(cmd, timeout=8, capture_output=True)
+                if out_path.exists() and out_path.stat().st_size > 100:
+                    try: temp_mp3.unlink()
+                    except Exception: pass
+                    return f"/api/voice/audio/{out_filename}"
+            except Exception as e:
+                print(f"[TTS] ffmpeg error: {e}")
+
+    # Cleanup temp
+    if temp_mp3.exists():
+        try: temp_mp3.unlink()
+        except Exception: pass
+
+    return ""
+
+@app.route("/api/voice/chat", methods=["POST"])
+def voice_chat_route():
+    audio_file = request.files.get("audio")
+    audio_bytes = b""
+    if audio_file:
+        audio_bytes = audio_file.read()
+    elif request.data:
+        audio_bytes = request.data
+
+    if not audio_bytes or len(audio_bytes) < 100:
+        return jsonify({"status": "error", "message": "No audio received"}), 400
+
+    api_key = cfg.get("gemini_api_key", "").strip()
+    voice = cfg.get("voice", "hi-IN-SwaraNeural")
+
+    user_text = ""
+    emotion = "HAPPY"
+    reply = ""
+
+    # Priority 1: Groq Whisper STT + Fast LLM
+    if api_key.startswith("gsk_"):
+        user_text = transcribe_audio_whisper_groq(audio_bytes, api_key)
+        if not user_text:
+            user_text = "Hello DeskBuddy"
+        emotion, reply = query_ai(user_text)
+    # Priority 2: Gemini Direct Multimodal Audio
+    elif api_key:
+        user_text, emotion, reply = ask_gemini_voice(audio_bytes, api_key)
+        if not reply or reply.startswith("Could not process") or reply.startswith("Gemini Error"):
+            emotion, reply = query_ai("Hello DeskBuddy")
+    else:
+        user_text = "Namaste"
+        emotion = "HAPPY"
+        reply = "Namaste! Please add your Gemini or Groq API key in Settings to unlock my voice brain!"
+
+    # Synthesize Neural Speech Audio
+    audio_url = generate_tts_wav(reply, voice=voice)
+
+    return jsonify({
+        "status": "ok",
+        "user_text": user_text,
+        "emotion": emotion,
+        "reply": reply,
+        "audio_url": audio_url
+    })
+
+@app.route("/api/voice/audio/<path:filename>", methods=["GET"])
+def voice_audio_serve(filename):
+    return send_from_directory(AUDIO_DIR, filename, mimetype="audio/wav")
 
 @app.route("/api/media/upload-photo", methods=["POST"])
 def upload_photo_route():
@@ -652,6 +827,7 @@ def index_page():
 
   <div class="tabs">
     <div class="tab-btn active" onclick="switchTab('chat')">💬 AI Chat</div>
+    <div class="tab-btn" onclick="switchTab('voice')">🎙️ Voice AI</div>
     <div class="tab-btn" onclick="switchTab('media')">🎬 Media</div>
     <div class="tab-btn" onclick="switchTab('settings')">⚙️ Settings</div>
   </div>
@@ -665,6 +841,22 @@ def index_page():
       </div>
       <input type="text" id="chatInput" placeholder="Ask a question or say hi..." onkeydown="if(event.key==='Enter') sendChat()">
       <button class="btn" id="sendChatBtn" onclick="sendChat()">⚡ Ask & Show on DeskBuddy</button>
+    </div>
+  </div>
+
+  <!-- TAB: VOICE AI -->
+  <div id="tab-voice" class="tab-pane">
+    <div class="card">
+      <h2>🎙️ Real-Time Voice Assistant (I2S Mic &amp; Speaker)</h2>
+      <p style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
+        DeskBuddy listens with INMP441, streams voice to this phone server, and answers aloud through MAX98357A speaker!
+      </p>
+      <div style="background:#0e121a; border:1px solid var(--border); border-radius:10px; padding:14px; text-align:center; margin-bottom:12px;">
+        <div id="voiceStatus" style="font-size:14px; font-weight:700; color:var(--accent); margin-bottom:8px;">Ready to Talk</div>
+        <div id="voiceTranscript" style="font-size:12px; color:#c9d1d9; min-height:36px; margin-bottom:10px;">Speak directly to DeskBuddy's microphone, or test from phone browser below:</div>
+        <button type="button" class="btn btn-blue" id="phoneMicBtn" onclick="togglePhoneRecord()">🎙️ Test Voice from Phone Mic</button>
+        <audio id="ttsAudioPlayer" style="display:none; width:100%; margin-top:12px;" controls></audio>
+      </div>
     </div>
   </div>
 
@@ -707,6 +899,14 @@ def index_page():
       <label style="font-size:12px; color:var(--text-muted);">AI API Key (Gemini or Groq):</label>
       <input type="password" id="cfgKey" placeholder="AIzaSy... or gsk_...">
       <p style="font-size:11px; color:var(--text-muted); margin-bottom:12px;">Google Gemini keys start with <b>AIzaSy...</b>. You can also use ultra-fast 100% free Groq keys (<b>gsk_...</b>) from <a href="https://console.groq.com/keys" target="_blank" style="color:var(--accent);">console.groq.com</a>.</p>
+
+      <label style="font-size:12px; color:var(--text-muted);">Voice Neural Character:</label>
+      <select id="cfgVoice">
+        <option value="hi-IN-SwaraNeural">Swara (Hindi Female - Sweet)</option>
+        <option value="hi-IN-MadhurNeural">Madhur (Hindi Male - Natural)</option>
+        <option value="en-IN-NeerjaNeural">Neerja (Indian English Female)</option>
+        <option value="en-US-JennyNeural">Jenny (English US Female)</option>
+      </select>
 
       <button class="btn" onclick="saveSettings()">💾 Save Settings</button>
     </div>
@@ -754,20 +954,89 @@ def index_page():
     const d = await r.json();
     document.getElementById('cfgIp').value = d.deskbuddy_ip || '';
     document.getElementById('cfgKey').value = d.gemini_api_key || '';
+    if (d.voice) document.getElementById('cfgVoice').value = d.voice;
   }
   loadSettings();
 
   async function saveSettings() {
     const ip = document.getElementById('cfgIp').value.trim();
     const key = document.getElementById('cfgKey').value.trim();
+    const voice = document.getElementById('cfgVoice').value;
     const r = await fetch('/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ deskbuddy_ip: ip, gemini_api_key: key })
+      body: JSON.stringify({ deskbuddy_ip: ip, gemini_api_key: key, voice: voice })
     });
     if (r.ok) {
       showToast('Settings saved!');
       checkPing();
+    }
+  }
+
+  // Phone browser test microphone recording via Web Audio
+  let mediaRecorder = null;
+  let audioChunks = [];
+  let isPhoneRecording = false;
+
+  async function togglePhoneRecord() {
+    const btn = document.getElementById('phoneMicBtn');
+    const status = document.getElementById('voiceStatus');
+    const transcript = document.getElementById('voiceTranscript');
+    const player = document.getElementById('ttsAudioPlayer');
+
+    if (!isPhoneRecording) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+        mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+        mediaRecorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+          status.innerText = '🧠 Thinking & Synthesizing Speech...';
+          btn.innerText = '⏳ Processing...';
+          btn.disabled = true;
+
+          const fd = new FormData();
+          fd.append('audio', audioBlob, 'phone_mic.wav');
+
+          try {
+            const res = await fetch('/api/voice/chat', { method: 'POST', body: fd });
+            const data = await res.json();
+            btn.disabled = false;
+            btn.innerText = '🎙️ Test Voice from Phone Mic';
+            if (data.status === 'ok') {
+              status.innerText = `DeskBuddy [${data.emotion}]:`;
+              transcript.innerText = `"${data.reply}"`;
+              if (data.audio_url) {
+                player.src = data.audio_url;
+                player.style.display = 'block';
+                player.play();
+              }
+              showToast('Voice processed! Speaking on DeskBuddy!', '#00C853');
+            } else {
+              status.innerText = 'Error: ' + (data.message || 'Voice error');
+            }
+          } catch(err) {
+            btn.disabled = false;
+            btn.innerText = '🎙️ Test Voice from Phone Mic';
+            status.innerText = 'Error: ' + err.message;
+          }
+        };
+
+        mediaRecorder.start();
+        isPhoneRecording = true;
+        btn.innerText = '🛑 Stop & Ask DeskBuddy';
+        btn.style.background = '#FF5252';
+        status.innerText = '🎙️ Listening to you... Speak now!';
+      } catch(err) {
+        alert('Microphone access denied: ' + err.message);
+      }
+    } else {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+      isPhoneRecording = false;
+      btn.style.background = 'var(--accent-blue)';
     }
   }
 

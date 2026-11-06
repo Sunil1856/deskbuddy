@@ -13,6 +13,7 @@ struct MenuItem {
 
 static const MenuItem MENU_ITEMS[MENU_ITEM_COUNT] = {
     {AppID::FACE,       "Face",     icon_face_24},
+    {AppID::VOICE,      "Voice AI", icon_voice_24},
     {AppID::CLOCK,      "Clock",    icon_clock_24},
     {AppID::WEATHER,    "Weather",  icon_weather_24},
     {AppID::WORLD_INFO, "Info",     icon_globe_24},

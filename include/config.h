@@ -8,6 +8,27 @@
 #define PIN_SCL         22       // OLED I2C Clock (ESP32 DevKit V1)
 #define PIN_TOUCH       27       // TTP223 Capacitive Touch Sensor (digital)
 
+// --- I2S Microphone (INMP441 - Port 0) ---
+#define I2S_MIC_PORT        I2S_NUM_0
+#define PIN_I2S_MIC_SCK     18       // Serial Clock (BCLK / SCK)
+#define PIN_I2S_MIC_WS      19       // Word Select (LRC / WS)
+#define PIN_I2S_MIC_SD      23       // Serial Data In (SD)
+
+// --- I2S Speaker / Amplifier (MAX98357A - Port 1) ---
+#define I2S_SPK_PORT        I2S_NUM_1
+#define PIN_I2S_SPK_BCLK    26       // Bit Clock (BCLK)
+#define PIN_I2S_SPK_LRC     25       // Left/Right Clock (LRC / WS)
+#define PIN_I2S_SPK_DIN     33       // Data In (DIN)
+
+// --- Audio Configuration ---
+#define AUDIO_SAMPLE_RATE   16000    // 16kHz standard for speech & whisper
+#define AUDIO_BITS_PER_SAMPLE 16     // 16-bit PCM
+
+// Default Mobile Voice Server URL (Flask server on port 8000)
+#ifndef VOICE_SERVER_URL
+#define VOICE_SERVER_URL    "http://10.91.8.136:8000"
+#endif
+
 // --- Display ---
 #define SCREEN_W        128
 #define SCREEN_H        64
@@ -97,7 +118,7 @@
 #endif
 
 // --- Menu ---
-#define MENU_ITEM_COUNT         8
+#define MENU_ITEM_COUNT         9
 #define MENU_ICON_SIZE          24
 #define MENU_SCROLL_SPEED       2
 
