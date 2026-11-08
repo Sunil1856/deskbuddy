@@ -346,10 +346,13 @@ void loop() {
             if (ev == TouchEvent::TAP) {
                 // Single Tap: cycle pet expressions smoothly
                 g_face.cycleNextExpression();
-            } else if (ev == TouchEvent::LONG_PRESS || ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
+            } else if (ev == TouchEvent::LONG_PRESS) {
                 // Long Press (hold > 650ms): open Main Menu Carousel!
                 g_display.captureScreen();
                 g_menu.show();
+            } else if (ev == TouchEvent::HOLD || ev == TouchEvent::DEEP_HOLD) {
+                // Deep Hold (> 1.4s): Direct shortcut to Voice AI Assistant!
+                switchApp(AppID::VOICE);
             }
             lastAutoCycle = millis();
         }

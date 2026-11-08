@@ -99,13 +99,17 @@ void AppVoice::handleTouch(TouchEvent event) {
                 // Manual tap to stop recording and send immediately
                 stopListeningAndSend();
             } else {
-                // Tap to force start speech recording
+                // Tap to force start speech recording immediately
                 _isSpeechDetected = true;
+                _speechStartTime = millis();
                 _lastSpeechTime = millis();
+                Serial.println("[VOICE] Tap: Force-started speech recording!");
             }
         } else if (_state == VoiceState::SPEAKING) {
             // Tap to skip audio and start listening again
             if (_audio) _audio->flushSpeaker();
+            startListening();
+        } else if (_state == VoiceState::IDLE) {
             startListening();
         }
     }
@@ -144,16 +148,22 @@ void AppVoice::_processListening() {
     _currentRms = rms;
     _smoothedRms = (_smoothedRms * 0.7f) + (rms * 0.3f);
 
-    // Update Waveform Visualizer
-    uint8_t waveHeight = (uint8_t)constrain((int)(_smoothedRms / 30.0f), 1, 24);
+    // Update Waveform Visualizer (dynamic scaling for crisp visual equalizer)
+    uint8_t waveHeight = (uint8_t)constrain((int)(_smoothedRms / 10.0f), 2, 22);
     for (int i = 0; i < 15; i++) {
         _waveHistory[i] = _waveHistory[i + 1];
     }
     _waveHistory[15] = waveHeight;
 
-    // VAD Speech Threshold (typical background noise is ~80-180, speech is > 350)
-    const float SPEECH_THRESHOLD = 320.0f;
+    // VAD Speech Threshold (typical background noise is ~15-40 after DC filter, speech is > 75)
+    const float SPEECH_THRESHOLD = 75.0f;
     unsigned long now = millis();
+
+    static unsigned long lastMicLog = 0;
+    if (now - lastMicLog > 500) {
+        lastMicLog = now;
+        Serial.printf("[MIC] Samples: %d | RMS: %.0f | Speech: %d | Rec: %d\n", samplesRead, rms, _isSpeechDetected, _recordedSamples);
+    }
 
     if (rms > SPEECH_THRESHOLD) {
         if (!_isSpeechDetected) {

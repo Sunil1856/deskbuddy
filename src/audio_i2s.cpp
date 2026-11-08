@@ -37,12 +37,12 @@ void AudioI2S::end() {
 bool AudioI2S::_initMicrophone() {
     if (_micInitialized) return true;
 
-    // INMP441 I2S Configuration (Master RX, 16kHz, 32-bit slot for clean 24-bit INMP441 frames)
+    // INMP441 I2S Configuration (Master RX, 16kHz, 32-bit slots, Stereo to capture L/R GND or VDD)
     i2s_config_t mic_config = {
         .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX),
         .sample_rate = AUDIO_SAMPLE_RATE,
         .bits_per_sample = I2S_BITS_PER_SAMPLE_32BIT,
-        .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,
+        .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT, // Stereo: auto-detects Left OR Right channel!
         .communication_format = i2s_comm_format_t(I2S_COMM_FORMAT_STAND_I2S),
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
         .dma_buf_count = 4,
@@ -123,30 +123,43 @@ bool AudioI2S::_initSpeaker() {
 int AudioI2S::readMicrophone(int16_t* outBuffer, int maxSamples, float gain) {
     if (!_micInitialized || !outBuffer || maxSamples <= 0) return 0;
 
-    // Read 32-bit raw slots from INMP441 DMA
-    static int32_t rawSamples[256];
+    // Read 32-bit stereo slots from INMP441 DMA
+    static int32_t rawSamples[512];
     int samplesToRead = maxSamples > 256 ? 256 : maxSamples;
     size_t bytesRead = 0;
 
-    esp_err_t err = i2s_read(I2S_MIC_PORT, rawSamples, samplesToRead * sizeof(int32_t), &bytesRead, pdMS_TO_TICKS(100));
+    esp_err_t err = i2s_read(I2S_MIC_PORT, rawSamples, samplesToRead * 2 * sizeof(int32_t), &bytesRead, pdMS_TO_TICKS(100));
     if (err != ESP_OK || bytesRead == 0) return 0;
 
-    int samplesCount = bytesRead / sizeof(int32_t);
+    int stereoPairs = bytesRead / (2 * sizeof(int32_t));
 
-    // Convert 24-bit in 32-bit slot to clean 16-bit PCM with gain & clipping protection
-    for (int i = 0; i < samplesCount; i++) {
-        // INMP441: Audio is top 24-bits. Shift right 14 bits for balanced volume
-        int32_t sample32 = rawSamples[i] >> 14;
-        sample32 = (int32_t)(sample32 * gain);
+    // DC high-pass filter state (~15 Hz high-pass to remove MEMS DC bias)
+    static float xPrev = 0.0f;
+    static float yPrev = 0.0f;
+    const float alpha = 0.995f;
 
-        // Clamp to 16-bit signed range [-32768, 32767]
+    for (int i = 0; i < stereoPairs; i++) {
+        int32_t left = rawSamples[i * 2] >> 14;
+        int32_t right = rawSamples[i * 2 + 1] >> 14;
+
+        // Auto-select active channel (whether L/R pin is connected to GND, 3.3V, or floating)
+        int32_t rawSample = (abs(left) >= abs(right)) ? left : right;
+
+        // Apply DC blocker filter
+        float x = (float)rawSample;
+        float y = x - xPrev + (alpha * yPrev);
+        xPrev = x;
+        yPrev = y;
+
+        // Apply gain & clamp to 16-bit signed range [-32768, 32767]
+        int32_t sample32 = (int32_t)(y * gain);
         if (sample32 > 32767) sample32 = 32767;
         else if (sample32 < -32768) sample32 = -32768;
 
         outBuffer[i] = (int16_t)sample32;
     }
 
-    return samplesCount;
+    return stereoPairs;
 }
 
 float AudioI2S::getAudioRMS(const int16_t* samples, int count) {
