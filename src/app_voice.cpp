@@ -237,14 +237,30 @@ void AppVoice::_sendAudioToServer() {
     }
 
     String serverBase = _getServerUrl();
-    String uploadUrl = serverBase + "/api/voice/chat";
-
     Serial.printf("[VOICE] Uploading %d bytes of WAV audio to: %s\n", 
-                  (int)(_recordedSamples * 2 + 44), uploadUrl.c_str());
+                  (int)(_recordedSamples * 2 + 44), serverBase.c_str());
 
-    HTTPClient http;
-    http.setTimeout(12000); // 12s timeout for speech transcription + LLM + TTS
-    http.begin(uploadUrl);
+    // Extract host and port from serverBase (e.g., http://10.91.8.136:8000)
+    String host = "10.91.8.136";
+    uint16_t port = 8000;
+    String cleanUrl = serverBase;
+    if (cleanUrl.startsWith("http://")) cleanUrl = cleanUrl.substring(7);
+    int colon = cleanUrl.indexOf(':');
+    int slash = cleanUrl.indexOf('/');
+    if (colon > 0) {
+        host = cleanUrl.substring(0, colon);
+        if (slash > colon) {
+            port = cleanUrl.substring(colon + 1, slash).toInt();
+        } else {
+            port = cleanUrl.substring(colon + 1).toInt();
+        }
+    } else if (slash > 0) {
+        host = cleanUrl.substring(0, slash);
+        port = 80;
+    } else {
+        host = cleanUrl;
+        port = 80;
+    }
 
     // Build standard 44-byte WAV header in front of recording buffer
     uint32_t pcmBytes = _recordedSamples * sizeof(int16_t);
@@ -260,66 +276,100 @@ void AppVoice::_sendAudioToServer() {
 
     size_t totalPayloadSize = head.length() + sizeof(wavHeader) + pcmBytes + tail.length();
 
-    http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
-    http.addHeader("Content-Length", String(totalPayloadSize));
-
-    // Standard raw payload upload: Combine header + pcmBytes
-    size_t fullWavSize = sizeof(wavHeader) + pcmBytes;
-    uint8_t* fullPayload = (uint8_t*)malloc(head.length() + fullWavSize + tail.length());
-    if (fullPayload) {
-        memcpy(fullPayload, head.c_str(), head.length());
-        memcpy(fullPayload + head.length(), wavHeader, sizeof(wavHeader));
-        memcpy(fullPayload + head.length() + sizeof(wavHeader), _recBuffer, pcmBytes);
-        memcpy(fullPayload + head.length() + fullWavSize, tail.c_str(), tail.length());
-
-        int code = http.POST(fullPayload, head.length() + fullWavSize + tail.length());
-        free(fullPayload);
-
-        Serial.printf("[VOICE] Server HTTP Code: %d\n", code);
-
-        if (code == HTTP_CODE_OK) {
-            String response = http.getString();
-            Serial.printf("[VOICE] Server Response: %s\n", response.c_str());
-
-            JsonDocument doc;
-            DeserializationError err = deserializeJson(doc, response);
-            if (!err && doc["status"] == "ok") {
-                _lastReply = doc["reply"].is<String>() ? doc["reply"].as<String>() : (doc["reply_text"] | "Hello!");
-                _lastEmotion = doc["emotion"] | "HAPPY";
-                String audioPath = doc["audio_url"] | "";
-
-                if (_face) {
-                    if (_lastEmotion == "HAPPY") _face->setExpression(Expression::HAPPY, 300);
-                    else if (_lastEmotion == "EXCITED") _face->setExpression(Expression::EXCITED, 300);
-                    else if (_lastEmotion == "LOVE") _face->setExpression(Expression::LOVE, 300);
-                    else if (_lastEmotion == "ANNOYED") _face->setExpression(Expression::ANGRY, 300);
-                    else _face->setExpression(Expression::HAPPY, 300);
-                }
-
-                http.end();
-
-                // If audio URL is returned, stream and play on MAX98357A speaker!
-                if (audioPath.length() > 0) {
-                    String fullAudioUrl = audioPath.startsWith("http") ? audioPath : (serverBase + audioPath);
-                    _playAudioStream(fullAudioUrl);
-                } else {
-                    // No audio, show text for 3 seconds
-                    delay(3000);
-                    startListening();
-                }
-                return;
-            } else {
-                _lastReply = doc["message"] | "AI Error occurred";
-            }
-        } else {
-            _lastReply = "Server Unreachable!";
-            _lastEmotion = "ANNOYED";
-        }
-    } else {
-        _lastReply = "Out of memory!";
+    WiFiClient client;
+    client.setTimeout(12);
+    if (!client.connect(host.c_str(), port)) {
+        Serial.printf("[VOICE] Connection to %s:%d failed\n", host.c_str(), port);
+        _lastReply = "Server Unreachable!";
+        _lastEmotion = "ANNOYED";
+        delay(2000);
+        startListening();
+        return;
     }
 
-    http.end();
+    client.printf("POST /api/voice/chat HTTP/1.1\r\n");
+    client.printf("Host: %s:%d\r\n", host.c_str(), port);
+    client.printf("User-Agent: DeskBuddy\r\n");
+    client.printf("Content-Type: multipart/form-data; boundary=%s\r\n", boundary.c_str());
+    client.printf("Content-Length: %u\r\n", (unsigned int)totalPayloadSize);
+    client.printf("Connection: close\r\n\r\n");
+
+    // Stream multipart parts directly from existing memory - ZERO extra dynamic heap allocation!
+    client.write((const uint8_t*)head.c_str(), head.length());
+    client.write(wavHeader, sizeof(wavHeader));
+
+    const uint8_t* pcmPtr = (const uint8_t*)_recBuffer;
+    size_t rem = pcmBytes;
+    while (rem > 0 && client.connected()) {
+        size_t chunk = rem > 1024 ? 1024 : rem;
+        client.write(pcmPtr, chunk);
+        pcmPtr += chunk;
+        rem -= chunk;
+    }
+    client.write((const uint8_t*)tail.c_str(), tail.length());
+    client.flush();
+
+    // Wait for response
+    unsigned long waitStart = millis();
+    while (client.connected() && !client.available() && (millis() - waitStart < 12000)) {
+        delay(20);
+    }
+
+    if (!client.available()) {
+        Serial.println("[VOICE] Response timeout from server");
+        client.stop();
+        _lastReply = "Server Timeout!";
+        _lastEmotion = "ANNOYED";
+        delay(2000);
+        startListening();
+        return;
+    }
+
+    // Skip HTTP headers
+    while (client.connected() || client.available()) {
+        String line = client.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) break;
+    }
+
+    String rawResponse = client.readString();
+    client.stop();
+    Serial.printf("[VOICE] Server Raw Response: %s\n", rawResponse.c_str());
+
+    // Extract JSON payload cleanly (handles both raw and chunked transfer)
+    int jsonStart = rawResponse.indexOf('{');
+    int jsonEnd = rawResponse.lastIndexOf('}');
+    String jsonStr = (jsonStart >= 0 && jsonEnd > jsonStart) ? rawResponse.substring(jsonStart, jsonEnd + 1) : rawResponse;
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, jsonStr);
+    if (!err && doc["status"] == "ok") {
+        _lastReply = doc["reply"].is<String>() ? doc["reply"].as<String>() : (doc["reply_text"] | "Hello!");
+        _lastEmotion = doc["emotion"] | "HAPPY";
+        String audioPath = doc["audio_url"] | "";
+
+        if (_face) {
+            if (_lastEmotion == "HAPPY") _face->setExpression(Expression::HAPPY, 300);
+            else if (_lastEmotion == "EXCITED") _face->setExpression(Expression::EXCITED, 300);
+            else if (_lastEmotion == "LOVE") _face->setExpression(Expression::LOVE, 300);
+            else if (_lastEmotion == "ANNOYED") _face->setExpression(Expression::ANGRY, 300);
+            else _face->setExpression(Expression::HAPPY, 300);
+        }
+
+        // If audio URL is returned, stream and play on MAX98357A speaker!
+        if (audioPath.length() > 0) {
+            String fullAudioUrl = audioPath.startsWith("http") ? audioPath : (serverBase + audioPath);
+            _playAudioStream(fullAudioUrl);
+        } else {
+            // No audio, show text for 3 seconds
+            delay(3000);
+            startListening();
+        }
+        return;
+    } else {
+        _lastReply = doc["message"] | "AI Error occurred";
+    }
+
     delay(2000);
     startListening();
 }
@@ -347,6 +397,7 @@ void AppVoice::_playAudioStream(const String& fullAudioUrl) {
         }
 
         uint8_t buffer[512];
+        unsigned long lastDisplayUpdate = 0;
         while (http.connected() && (totalLen > 0 || totalLen == -1)) {
             size_t availableBytes = stream->available();
             if (availableBytes > 0) {
@@ -360,9 +411,12 @@ void AppVoice::_playAudioStream(const String& fullAudioUrl) {
                 delay(2);
             }
 
-            // Quick render while playing so OLED animates in sync with speech!
-            render();
-            if (_dm) _dm->display().display();
+            // Throttle OLED rendering to ~16 FPS (every 60ms) to prevent I2S DMA buffer starvation
+            if (millis() - lastDisplayUpdate > 60) {
+                lastDisplayUpdate = millis();
+                render();
+                if (_dm) _dm->display().display();
+            }
         }
 
         _audio->writeSpeakerSilence(50);
@@ -403,7 +457,7 @@ void AppVoice::_renderListening() {
     // Header Bar
     d.setTextSize(1);
     d.setTextColor(SSD1306_WHITE);
-    _dm->drawCenteredText("🎙️ LISTENING... [LIVE]", 2, 1);
+    _dm->drawCenteredText("LISTENING... [LIVE]", 2, 1);
     d.drawLine(0, 12, SCREEN_W, 12, SSD1306_WHITE);
 
     // Live Animated Equalizer Waveform in Center
@@ -439,7 +493,7 @@ void AppVoice::_renderThinking() {
     // Header Bar
     d.setTextSize(1);
     d.setTextColor(SSD1306_WHITE);
-    _dm->drawCenteredText("🧠 THINKING...", 2, 1);
+    _dm->drawCenteredText("THINKING...", 2, 1);
     d.drawLine(0, 12, SCREEN_W, 12, SSD1306_WHITE);
 
     // Animated Pulsing Brain / Orbiting Dots
@@ -463,7 +517,7 @@ void AppVoice::_renderSpeaking() {
     // Header Bar with Emotion
     d.setTextSize(1);
     d.setTextColor(SSD1306_WHITE);
-    String header = "🔊 BUDDY [" + _lastEmotion.substring(0, 5) + "]";
+    String header = "BUDDY [" + _lastEmotion.substring(0, 5) + "]";
     d.setCursor(2, 2);
     d.print(header);
 

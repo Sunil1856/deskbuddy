@@ -53,6 +53,7 @@ bool AudioI2S::_initMicrophone() {
     };
 
     i2s_pin_config_t mic_pins = {
+        .mck_io_num = I2S_PIN_NO_CHANGE,
         .bck_io_num = PIN_I2S_MIC_SCK,
         .ws_io_num = PIN_I2S_MIC_WS,
         .data_out_num = I2S_PIN_NO_CHANGE,
@@ -95,6 +96,7 @@ bool AudioI2S::_initSpeaker() {
     };
 
     i2s_pin_config_t spk_pins = {
+        .mck_io_num = I2S_PIN_NO_CHANGE,
         .bck_io_num = PIN_I2S_SPK_BCLK,
         .ws_io_num = PIN_I2S_SPK_LRC,
         .data_out_num = PIN_I2S_SPK_DIN,
