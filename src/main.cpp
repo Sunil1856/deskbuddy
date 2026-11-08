@@ -58,15 +58,22 @@ void setup() {
     
     // Init subsystems
     g_storage.begin();
+    Serial.printf("[SETUP] Storage OK. Configured: %d\n", g_storage.isConfigured());
     
     if (!g_display.begin()) {
         Serial.println("OLED init failed!");
         while (1) delay(100);
     }
+    Serial.println("[SETUP] OLED init OK!");
     
     // Apply initial settings
-    g_display.setBrightness(g_storage.getBrightness());
-    g_display.setFlip(g_storage.getDisplayFlip());
+    uint8_t br = g_storage.getBrightness();
+    if (br == 0) br = 3;
+    g_storage.setBrightness(br);
+    bool flip = g_storage.getDisplayFlip();
+    Serial.printf("[SETUP] Brightness: %d, Flip: %d\n", br, flip);
+    g_display.setBrightness(br);
+    g_display.setFlip(flip);
     
     g_touchInput.begin();
     g_time.begin(&g_storage);
@@ -108,11 +115,14 @@ void setup() {
     
     // Check if configured
     if (!g_storage.isConfigured()) {
+        Serial.println("[SETUP] Not configured, starting portal");
         g_wifi.startPortal();
         return; // Stay in portal until configured & restarted
     }
     
+    Serial.println("[SETUP] Configured, calling autoConnect");
     g_wifi.autoConnect();
+    Serial.println("[SETUP] setup() complete!");
 }
 
 static unsigned long g_lastAppSwitchTime = 0;
@@ -161,6 +171,12 @@ void switchApp(AppID newApp) {
 }
 
 void loop() {
+    static unsigned long lastDebug = 0;
+    if (millis() - lastDebug > 2000) {
+        lastDebug = millis();
+        Serial.printf("[LOOP] App: %d, WiFi: %d, IP: %s\n", (int)g_currentApp, (int)g_wifi.getState(), g_wifi.getIP().c_str());
+    }
+
     // 1. Update core services
     g_wifi.update();
     g_time.update();

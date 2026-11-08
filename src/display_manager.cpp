@@ -13,6 +13,10 @@ bool DisplayManager::begin() {
         return false;
     }
     
+    // Set maximum contrast and active charge pump immediately
+    _display.ssd1306_command(SSD1306_SETCONTRAST);
+    _display.ssd1306_command(0xFF);
+    
     _display.clearDisplay();
     _display.setTextColor(SSD1306_WHITE);
     _display.setTextSize(1);
@@ -36,8 +40,8 @@ void DisplayManager::show() {
 }
 
 void DisplayManager::setBrightness(uint8_t level) {
-    // SSD1306 brightness via contrast command
-    const uint8_t levels[] = {0x01, 0x40, 0xA0, 0xFF};
+    // SSD1306 brightness via contrast command (always keep clearly visible!)
+    const uint8_t levels[] = {0x60, 0x90, 0xC8, 0xFF};
     uint8_t idx = level > 3 ? 3 : level;
     _display.ssd1306_command(SSD1306_SETCONTRAST);
     _display.ssd1306_command(levels[idx]);

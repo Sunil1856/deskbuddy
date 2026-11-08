@@ -133,7 +133,9 @@ bool Storage::geocodeCity(const String& cityName, float& lat, float& lon) {
 }
 
 uint8_t Storage::getBrightness() {
-    return (uint8_t)loadInt(NVS_KEY_BRIGHTNESS, 3); // Default: max
+    uint8_t b = (uint8_t)loadInt(NVS_KEY_BRIGHTNESS, 3);
+    if (b == 0 || b > 3) b = 3; // Default: Max brightness (3)
+    return b;
 }
 
 void Storage::setBrightness(uint8_t level) {
